@@ -116,6 +116,12 @@ risk_note / moat_reason / management_reason / risk_reason / pe / fcf_yield
 
 输出结果写入 `output/manual_review_needed.csv`，并在终端打印摘要。
 
+> **v2.1.0：缺失 ≠ 公司差。** `manual_review_needed.csv` 现包含清晰的可操作列：
+> `ticker, company, missing_fields, missing_count, suggested_action, reason`。
+> `suggested_action` 会区分「打开 Excel 模板补录人工字段」与「运行 `fetcher.py --valuation` 获取估值」；
+> `reason` 明确说明这些字段只是**待补录数据，不代表公司质量差**。
+> 同时生成的 Excel 模板会把**待填单元格高亮为浅红**，已有值保留原色、不会被清空覆盖。
+
 ---
 
 ### 第五步：生成 Excel 补录模板
@@ -324,6 +330,10 @@ yfinance 偶尔超时，重试一次通常可以解决。已有 `annual_financia
 
 **Q：新股票的评分很低/为 0 怎么办？**  
 新股票尚未填入护城河和管理层分数（默认为 0），导致评分偏低。按照流程第四到第六步补录人工判断字段后，评分会恢复正常。
+
+**Q：最终决策出现"数据不足（待补录）"是什么意思？**  
+这是 v2.1.0 新增状态，用于**区分"数据缺失"和"公司质量差"**。当 PE、FCF Yield、ROIC、ROE、营收增速、D/E 等关键量化字段**缺失 ≥2 项**时，程序不会把它当成差公司死扣分，而是标记为待补录，引导你去 `manual_review_needed.csv` 按 `suggested_action` 补齐数据（如运行 `fetcher.py --watchlist`），补齐后重新 `python main.py` 即可得到真实评分。  
+`munger_score_result.csv` 和 `research_candidates.csv` 也新增了 `data_status` / `missing_fields` / `reason` 列，方便你看出"为什么值得研究、哪里还缺数据"。
 
 **Q：为什么同一只股票有时是"自动"模式有时是"手动"模式？**  
 `annual_financials.csv` 中有该 ticker 的年度数据时使用自动计算；没有时回退到 `stocks.csv` 中手填的财务数据。运行 `fetcher.py --watchlist` 可以为所有股票生成年度数据。

@@ -3,3 +3,11 @@ __pycache__/
 *.pyc
 .DS_Store
 backup/
+
+# 运行结果：保留目录、忽略内容
+# 注意：data/stocks.csv 与 data/annual_financials.csv 暂不忽略，应纳入版本管理。
+output/*
+!output/.gitkeep
+
+# 数据备份文件（保留 stocks.csv 和 annual_financials.csv 本体）
+data/*_backup_*.csv

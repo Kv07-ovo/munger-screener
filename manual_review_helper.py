@@ -107,6 +107,32 @@ FIELD_LABELS = {
     "risk_reason":           "风险详细说明",
 }
 
+# ── v2.1.0-alpha2：缺失字段 → 建议动作 / 原因（区分"待补录" vs "公司差")────────────
+# 估值字段可由 fetcher 自动获取；其余为人工判断字段，需在 xlsx 模板补录。
+VALUATION_FIELDS = {"pe", "fcf_yield"}
+REVIEW_LABELS = {
+    **FIELD_LABELS,
+    "pe":        "市盈率PE",
+    "fcf_yield": "自由现金流收益率",
+}
+
+
+def suggested_action(missing_fields: list[str]) -> str:
+    """根据缺失字段类型给出可操作建议。"""
+    actions = []
+    if any(f not in VALUATION_FIELDS for f in missing_fields):
+        actions.append("打开 output/manual_fill_template.xlsx 补录人工字段")
+    if any(f in VALUATION_FIELDS for f in missing_fields):
+        actions.append("运行 python fetcher.py --valuation <ticker> 获取估值")
+    return "；".join(actions)
+
+
+def missing_reason(missing_fields: list[str]) -> str:
+    """说明缺失含义：待补录数据，不代表公司质量差。"""
+    labels = "、".join(REVIEW_LABELS.get(f, f) for f in missing_fields)
+    return (f"以下字段为空属于待补录数据，不代表公司质量差："
+            f"{labels}；补齐后重新运行 python main.py 即可正常评分。")
+
 # ── xlsx style constants ───────────────────────────────────────────────────────
 
 FIELD_GROUPS = {
@@ -265,14 +291,17 @@ def main():
             review_rows.append(
                 {
                     "ticker": row["ticker"],
-                    "name": row["name"],
-                    "missing_count": len(missing),
+                    "company": row.get("name", ""),
                     "missing_fields": "|".join(missing),
-                    **{f: row.get(f, "") for f in ALL_CHECKED},
+                    "missing_count": len(missing),
+                    "suggested_action": suggested_action(missing),
+                    "reason": missing_reason(missing),
                 }
             )
 
-    output_cols = ["ticker", "name", "missing_count", "missing_fields"] + ALL_CHECKED
+    # v2.1.0-alpha2：清晰 schema，区分"待补录"与"公司差"
+    output_cols = ["ticker", "company", "missing_fields",
+                   "missing_count", "suggested_action", "reason"]
     with open(OUTPUT_PATH, "w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=output_cols)
         writer.writeheader()
@@ -280,20 +309,21 @@ def main():
 
     total = len(rows)
     flagged = len(review_rows)
-    print(f"Checked {total} stocks -> {flagged} need manual review -> {OUTPUT_PATH}")
+    print(f"已检查 {total} 只股票 → {flagged} 只需要补录 → {OUTPUT_PATH}")
+    print("（缺失=数据待补录，不代表公司质量差）")
     print()
     if review_rows:
-        print(f"{'Ticker':<10} {'Name':<12} {'Missing (#)':<12} Fields")
-        print("-" * 80)
+        print(f"{'代码':<10} {'缺失数':<8} 缺失字段")
+        print("-" * 70)
         for r in review_rows:
-            print(f"{r['ticker']:<10} {r['name']:<12} {r['missing_count']:<12} {r['missing_fields']}")
+            print(f"{r['ticker']:<10} {r['missing_count']:<8} {r['missing_fields']}")
     else:
-        print("All stocks have complete manual fields.")
+        print("所有股票的人工字段均已补全。")
 
 
 # ── xlsx generator ─────────────────────────────────────────────────────────────
 
-def _generate_xlsx(template_rows: list[dict]) -> None:
+def _generate_xlsx(template_rows: list[dict], blanks_list: list[set] | None = None) -> None:
     try:
         import openpyxl
         from openpyxl.styles import Font, PatternFill, Alignment
@@ -303,6 +333,11 @@ def _generate_xlsx(template_rows: list[dict]) -> None:
         print("WARNING: openpyxl not installed. Skipping xlsx generation.")
         print("         Run: pip install openpyxl")
         return
+
+    # v2.1.0-alpha2：待填单元格用醒目颜色高亮，已有值保留分组色（绝不留空覆盖）
+    TOFILL_FILL = "FFFFC7CE"   # 浅红 = 待填写
+    if blanks_list is None:
+        blanks_list = [set()] * len(template_rows)
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -324,7 +359,8 @@ def _generate_xlsx(template_rows: list[dict]) -> None:
     # ── Row 2: hint text ───────────────────────────────────────────────────────
     ws.merge_cells(f"A{_ROW_HINT}:{last_col}{_ROW_HINT}")
     hint = ws.cell(_ROW_HINT, 1)
-    hint.value = "请填写中文表头对应的内容，程序会根据隐藏英文字段名自动导入。"
+    hint.value = ("请填写中文表头对应的内容，程序会根据隐藏英文字段名自动导入。"
+                  "　【浅红单元格 = 待填写；其它为已有数据，请勿清空覆盖】")
     hint.font = Font(italic=True, size=10, color="FF595959")
     hint.alignment = Alignment(horizontal="center", vertical="center")
     hint.fill = PatternFill(start_color="FFF2F2F2", end_color="FFF2F2F2", fill_type="solid")
@@ -352,6 +388,7 @@ def _generate_xlsx(template_rows: list[dict]) -> None:
     # ── Data rows (row 5+) ─────────────────────────────────────────────────────
     for ri, row_data in enumerate(template_rows, start=_DATA_START):
         ws.row_dimensions[ri].height = _row_height(row_data)
+        row_blanks = blanks_list[ri - _DATA_START]
         for ci, field in enumerate(TEMPLATE_FIELDS, start=1):
             cell = ws.cell(ri, ci)
             val = row_data.get(field, "")
@@ -362,9 +399,12 @@ def _generate_xlsx(template_rows: list[dict]) -> None:
                     cell.value = val
             else:
                 cell.value = val
-            grp = FIELD_GROUPS.get(field, "")
-            dc = DATA_FILL.get(grp, "FFFFFFFF")
-            cell.fill = PatternFill(start_color=dc, end_color=dc, fill_type="solid")
+            # 待填字段醒目高亮；已有值保留分组色
+            if field in row_blanks:
+                fc = TOFILL_FILL
+            else:
+                fc = DATA_FILL.get(FIELD_GROUPS.get(field, ""), "FFFFFFFF")
+            cell.fill = PatternFill(start_color=fc, end_color=fc, fill_type="solid")
             cell.alignment = Alignment(wrap_text=(field in WRAP_FIELDS), vertical="top")
 
     # ── Freeze: rows 1-4 (3 visible + 1 hidden) + cols A-C  →  D5 ─────────────
@@ -452,20 +492,36 @@ def generate_template():
         stocks = {row["ticker"]: row for row in csv.DictReader(f)}
 
     template_rows = []
+    template_blanks = []          # 与 template_rows 平行：每行"待填字段"集合（用于高亮）
     for r in review_rows:
         ticker = r["ticker"]
         src = stocks.get(ticker, {})
+        # 优先用 src 里 stocks.csv 的真实 name（保留已有人工字段）
+        name = src.get("name", "") or r.get("company", "")
         missing_set = set(r["missing_fields"].split("|")) if r["missing_fields"] else set()
         out = {}
         for field in TEMPLATE_FIELDS:
-            if field in ("ticker", "name"):
-                out[field] = r[field]
+            if field == "ticker":
+                out[field] = ticker
+            elif field == "name":
+                out[field] = name
             elif field in missing_set:
-                out[field] = ""
+                out[field] = ""          # 待填：来自缺失检查
             else:
-                out[field] = src.get(field, "")
-        if any(out[f] == "" for f in TEMPLATE_FIELDS if f not in ("ticker", "name")):
+                out[field] = src.get(field, "")   # 保留 stocks.csv 已有值，绝不覆盖
+        blanks = {f for f in TEMPLATE_FIELDS
+                  if out[f] == "" and f not in ("ticker", "name")}
+        if blanks:
             template_rows.append(out)
+            template_blanks.append(blanks)
+
+    # v2.1.0-alpha2：可能所有待补录字段都是估值字段（pe/fcf_yield，不在人工模板里），
+    # 此时 template_rows 为空——不应生成空模板，而是引导去跑 fetcher。
+    if not template_rows:
+        print("没有需要人工补录的判断字段（人工字段均已齐全）。")
+        print("若 manual_review_needed.csv 仍有条目，多为估值字段缺失，")
+        print("请运行：python fetcher.py --valuation --watchlist")
+        return
 
     # CSV keeps English field names (program-compatible)
     with open(TEMPLATE_PATH, "w", encoding="utf-8", newline="") as f:
@@ -473,8 +529,8 @@ def generate_template():
         writer.writeheader()
         writer.writerows(template_rows)
 
-    # XLSX gets Chinese display headers
-    _generate_xlsx(template_rows)
+    # XLSX gets Chinese display headers + 待填单元格高亮
+    _generate_xlsx(template_rows, template_blanks)
 
     print("已生成：")
     print(f"  * {TEMPLATE_PATH}")

@@ -1,15 +1,1 @@
 ticker,name,industry,brand_score,switching_cost_score,network_effect_score,scale_advantage_score,pricing_power_score,moat_durability_score,management_score,circle_of_competence,confidence_score,risk_note,moat_reason,management_reason,risk_reason
-V,维萨,金融科技,8,9,10,9,9,9,9,inside,9,,全球支付网络效应+发卡行切换成本极高,历任CEO专注核心业务分红稳定增长,监管风险（数字货币冲击），增长可能趋缓
-KO,可口可乐,消费品,10,3,2,8,9,9,8,inside,9,,品牌溢价+全球分销网络+口味习惯锁定,守成稳健回购节奏稳定但进取不足,糖饮料需求长期下行，健康消费趋势不利
-AAPL,苹果,科技,10,9,7,9,9,8,9,inside,9,,iOS生态锁定+品牌溢价+用户黏性极强,库克资本配置极佳回购规模全球最大,iPhone需求触顶，中国市场受压
-JNJ,强生,医疗健康,8,6,2,8,7,8,8,edge,8,,医疗器械+制药双业务壁垒专利保护强,百年老店分红60年连续增长保守稳健,talc诉讼赔付风险，专利悬崖压力
-PG,宝洁,消费品,8,3,2,8,7,7,8,inside,8,,品牌组合+渠道覆盖+研发壁垒,低调稳健65年分红连续增长记录,通胀挤压利润，日用品创新难度大
-AMZN,亚马逊,电商/云计算,8,6,7,10,5,8,8,inside,8,,AWS云市场领导+物流网络壁垒极深,亚西·贾西执行稳健长期主义文化延续,AWS增速放缓，监管风险，净利率模型偏低
-XOM,埃克森美孚,能源,5,3,1,7,5,5,7,outside,7,,大规模低成本油气资产+炼化能力,资本配置趋于保守股东回报改善,能源转型长期压力，油价周期波动剧烈
-GOOGL,GOOGL,科技,9,,,,,,,edge,6,regulatory risk,搜索垄断+广告生态+Android生态锁定,,
-MA,MA,,,,,,,,,edge,6,,,,
-COST,COST,,,,,,,,,edge,6,,,,
-ADBE,ADBE,,,,,,,,,edge,6,,,,
-CRM,CRM,,,,,,,,,edge,6,,,,
-JPM,JPM,,,,,,,,,edge,6,,,,
-BRK-B,BRK-B,,,,,,,,,edge,6,,,,

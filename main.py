@@ -25,7 +25,8 @@ except ImportError:
 
 from preflight          import run_preflight, print_report   # v2.1.0
 from scorer             import score_stock, generate_narrative
-from validator          import validate_data, get_final_decision, filter_fin_warning
+from validator          import (validate_data, get_final_decision, filter_fin_warning,
+                                 missing_key_quant_fields, quant_labels)
 from financial_analyzer import compute_all_metrics          # v1.8
 
 BASE_DIR      = os.path.dirname(os.path.abspath(__file__))
@@ -236,6 +237,8 @@ def save_results(results, filepath):
     cols = [
         "ticker", "name", "industry", "data_date",
         "total_score", "rating", "final_decision",
+        # v2.1.0-alpha2：数据完整度（区分"数据缺失"与"公司差"）
+        "data_status", "missing_fields",
         "quality_score", "moat_score", "growth_score",
         "balance_sheet_score", "valuation_score", "management_score", "risk_penalty",
         "brand_score", "switching_cost_score", "network_effect_score",
@@ -257,13 +260,26 @@ def save_results(results, filepath):
     return df
 
 
+def _candidate_reason(row):
+    """
+    v2.1.0-alpha2：研究候选的 reason 列。
+    = 为什么值得研究（入选理由） + 数据完整度说明（还缺什么）。
+    明确告知"缺失≠公司差"，引导补齐后复评。
+    """
+    base = generate_candidate_reason(row)
+    mf = str(row.get("missing_fields", "") or "").strip()
+    if mf and mf != "（无）":
+        return f"{base}｜数据待补录：{mf}（缺失≠公司差，补齐后可复评）"
+    return f"{base}｜数据完整"
+
+
 def save_research_candidates(df, filepath):
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
     cands = df[df["final_decision"].isin(["深入研究", "加入观察池"])].copy()
     if cands.empty:
         print("  无股票通过全部检查（研究候选名单为空）"); return
-    # v2.0：生成入选理由
-    cands["candidate_reason"] = cands.apply(generate_candidate_reason, axis=1)
+    # v2.1.0-alpha2：reason（为何值得研究 + 缺哪些数据）；missing_fields 已在 df 中
+    cands["reason"] = cands.apply(_candidate_reason, axis=1)
     cands.to_csv(filepath, index=False, encoding="utf-8-sig")
     print(f"研究候选股已保存：{filepath}  共 {len(cands)} 只")
 
@@ -530,6 +546,11 @@ def main():
         warnings, warning_note   = validate_data(row)
         result["warning_note"]   = warning_note
         result["final_decision"] = get_final_decision(result, row)
+
+        # v2.1.0-alpha2：标注关键量化字段缺失情况（缺失≠公司差）
+        _missing = missing_key_quant_fields(row)
+        result["missing_fields"] = "、".join(quant_labels(_missing)) if _missing else "（无）"
+        result["data_status"]    = "待补录" if _missing else "完整"
 
         # v1.8：注入数据模式和展示用的关键财务指标
         result["data_mode"]               = row.get("data_mode", "manual_fallback")

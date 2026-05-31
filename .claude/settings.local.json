@@ -10,7 +10,13 @@
       "Bash(.venv/bin/python -m pip install --upgrade pip)",
       "Bash(.venv/bin/python -m pip install -r requirements.txt)",
       "Bash(.venv/bin/python -c \"import pandas, yfinance, openpyxl; print\\('pandas', pandas.__version__\\); print\\('yfinance', yfinance.__version__\\); print\\('openpyxl', openpyxl.__version__\\)\")",
-      "Bash(.venv/bin/python preflight.py)"
+      "Bash(.venv/bin/python preflight.py)",
+      "Bash(.venv/bin/python -m py_compile validator.py main.py manual_review_helper.py)",
+      "Bash(.venv/bin/python main.py)",
+      "Bash(sed -n '/final_decision 分布/,/行业对比摘要/p')",
+      "Bash(.venv/bin/python -c ' *)",
+      "Bash(.venv/bin/python manual_review_helper.py)",
+      "Bash(.venv/bin/python manual_review_helper.py --template)"
     ]
   }
 }

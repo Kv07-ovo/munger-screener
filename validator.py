@@ -1,9 +1,14 @@
 # ============================================================
-# validator.py  —  芒格式选股评分器：数据校验 + 最终决策  v2.0
+# validator.py  —  芒格式选股评分器：数据校验 + 最终决策  v2.1
 #
 # v2.0 改动：
 #   1. validate_data() 新增合并 annual_financials 的 data_warning
 #   2. get_final_decision() 新增：年度数据不足时倾向"数据不足"
+# v2.1.0-alpha2 改动：
+#   3. 明确区分"数据缺失"与"公司质量差"：
+#      关键量化字段（PE/FCF Yield/ROIC/ROE/营收增速/D-E）缺失时，
+#      不再死扣分判"暂时放弃"，而是给出"数据不足（待补录）"。
+#      （评分算法 scorer.py 不变，仅决策层区分缺失 vs 差。）
 # ============================================================
 
 REQUIRED_FIELDS = [
@@ -11,6 +16,23 @@ REQUIRED_FIELDS = [
     "net_margin_5y_avg", "fcf_positive_years", "debt_to_equity",
     "pe", "fcf_yield", "roic_5y_avg", "moat_score", "management_score",
 ]
+
+# ── v2.1.0-alpha2：关键量化字段（缺失≠公司差，应进入待补录）──────────────────────
+# 这些字段缺失只代表"还没拿到数据"，不应被当作"公司差"而死扣分。
+KEY_QUANT_FIELDS = [
+    "pe", "fcf_yield", "roic_5y_avg", "roe_5y_avg",
+    "revenue_growth_5y_cagr", "debt_to_equity",
+]
+_QUANT_LABELS = {
+    "pe":                     "市盈率PE",
+    "fcf_yield":              "自由现金流收益率",
+    "roic_5y_avg":            "ROIC(5年均值)",
+    "roe_5y_avg":             "ROE(5年均值)",
+    "revenue_growth_5y_cagr": "营收增速(5年CAGR)",
+    "debt_to_equity":         "负债权益比D/E",
+}
+# 视为"缺失/空"的取值（不含数字 0：D/E=0 等可能是真实值，不算缺失）
+_BLANK_SENTINELS = {"", "nan", "none", "n/a", "null", "unknown", "manual_pending"}
 
 _TREND_FIELDS = ["roe_trend", "roic_trend", "margin_trend", "revenue_trend"]
 _TREND_NAMES  = {"roe_trend": "ROE", "roic_trend": "ROIC",
@@ -55,6 +77,27 @@ def _industry_required_exempt(row: dict) -> set:
         if kw in ind:
             exempt |= fields
     return exempt
+
+
+def _is_blank(val) -> bool:
+    """是否为缺失/空值。注意：数字 0 不算缺失（如 D/E=0 是合理真实值）。"""
+    return str(val).strip().lower() in _BLANK_SENTINELS
+
+
+def missing_key_quant_fields(row: dict) -> list:
+    """
+    返回该股票"缺失"的关键量化字段（保持 KEY_QUANT_FIELDS 顺序）。
+    会跳过该行业不适用的字段（如银行的 fcf_yield），避免误报。
+    缺失 = 字段为空，而非"数值差"——用于区分"数据缺失"与"公司差"。
+    """
+    exempt = _industry_required_exempt(row)
+    return [f for f in KEY_QUANT_FIELDS
+            if f not in exempt and _is_blank(row.get(f, ""))]
+
+
+def quant_labels(fields) -> list:
+    """把字段名转成中文标签，便于人工阅读。"""
+    return [_QUANT_LABELS.get(f, f) for f in fields]
 
 
 def filter_fin_warning(row: dict, fin_warn: str) -> str:
@@ -150,8 +193,11 @@ def validate_data(row):
         warnings.append(f"数据可信度偏低({conf:.0f}/10)：请用更可靠的数据来源核实")
     if coc == "outside":
         warnings.append("超出能力圈(outside)：对该公司/行业理解不足，评分参考价值有限")
-    if fcf_yrs < 3 and "fcf_positive_years" not in exempt:
-        warnings.append(f"FCF正数年数不足({fcf_yrs}年)：现金流不稳定或数据不足")
+    if "fcf_positive_years" not in exempt:
+        if _is_blank(row.get("fcf_positive_years", "")):
+            warnings.append("FCF正数年数缺失：数据待补录（非公司质量问题），建议运行 fetcher.py")
+        elif fcf_yrs < 3:
+            warnings.append(f"FCF正数年数不足({fcf_yrs}年)：现金流不稳定（数据已存在）")
 
     note_str = str(row.get("risk_note", "")).lower()
     if "fraud" in note_str or "造假" in note_str:
@@ -200,17 +246,20 @@ def get_final_decision(result, row):
 
     v2.0 新增：若 annual_financials 年份 < 3 且使用自动计算，
                倾向于"数据不足"（而非给出正面评级）。
+    v2.1.0-alpha2：区分"数据缺失"与"公司差"。关键量化字段缺失走
+               "数据不足（待补录）"；ROIC/FCF 的负面判定仅在字段存在时生效。
 
     优先级（高→低）：
         1. 超出能力圈
         2. 造假风险
-        3. D/E > 3
-        4. FCF 年数 < 3
-        5. ROIC < 5
-        6. 数据可信度 < 6
-        7. [v2.0] 年度数据不足（< 3 年且自动模式）
-        8. 按总分打级
-        9. 趋势恶化降级（2+ declining → 不能"深入研究"）
+        3. D/E > 3（真实高杠杆；缺失不触发）
+        4. [alpha2] 关键量化字段缺失 ≥2 项 → 数据不足（待补录）
+        5. 数据可信度 < 6
+        6. [v2.0] 年度数据不足（< 3 年且自动模式）
+        7. FCF 年数 < 3（仅当该字段存在）
+        8. ROIC < 5（仅当该字段存在）
+        9. 按总分打级
+       10. 趋势恶化降级（2+ declining → 不能"深入研究"）
     """
     total     = result["total_score"]
     de        = _sf(row.get("debt_to_equity"))
@@ -222,16 +271,28 @@ def get_final_decision(result, row):
     fin_yrs   = int(_sf(row.get("_fin_years_count", 0)))
     data_mode = str(row.get("data_mode", "")).strip()
 
-    # 硬性过滤
+    # ── 硬性风险过滤（基于"确实存在"的数值；缺失的 de 默认 0 不会误触发）──
     if coc == "outside":          return "超出能力圈"
     if "fraud" in note_str or "造假" in note_str:  return "风险过高"
     if de > 3:                    return "风险过高"
-    if fcf_years < 3:             return "数据不足或风险过高"
-    if roic < 5:                  return "暂时放弃"
+
+    # ── v2.1.0-alpha2：先区分"数据缺失" vs "公司差" ───────────────────
+    # 关键量化字段大面积缺失（≥2 项）→ 数据待补录，而不是判公司差。
+    # （补齐后重新评分即可，避免把"没数据"误当"差公司"。）
+    missing = missing_key_quant_fields(row)
+    if len(missing) >= 2:
+        return "数据不足（待补录）"
+
     if conf < 6:                  return "数据不足"
     # v2.0：自动模式下年度数据过少
     if data_mode == "annual_financials" and 0 < fin_yrs < 3:
         return "数据不足"
+
+    # ── 以下负面判定只在相应字段"存在"时才生效（缺失不死扣分）──────────
+    if not _is_blank(row.get("fcf_positive_years", "")) and fcf_years < 3:
+        return "数据不足或风险过高"
+    if "roic_5y_avg" not in missing and roic < 5:
+        return "暂时放弃"
 
     # 按总分
     if total >= 85:   decision = "深入研究"
