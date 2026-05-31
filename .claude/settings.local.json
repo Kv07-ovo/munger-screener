@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c ' *)",
+      "Bash(python3 *)",
+      "Bash(pip3 show *)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(.venv/bin/python --version)",
+      "Bash(.venv/bin/python -m pip --version)",
+      "Bash(.venv/bin/python -m pip install --upgrade pip)",
+      "Bash(.venv/bin/python -m pip install -r requirements.txt)",
+      "Bash(.venv/bin/python -c \"import pandas, yfinance, openpyxl; print\\('pandas', pandas.__version__\\); print\\('yfinance', yfinance.__version__\\); print\\('openpyxl', openpyxl.__version__\\)\")",
+      "Bash(.venv/bin/python preflight.py)"
+    ]
+  }
+}
