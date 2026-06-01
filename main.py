@@ -1,5 +1,5 @@
 # ============================================================
-# main.py  —  芒格式选股评分器：主程序  v2.0  自动数据版
+# main.py  —  芒格式选股评分器：主程序  v2.2.0-alpha2
 #
 # v2.0 新增：fetcher.py 自动抓取数据；压缩重复警告；
 #            行业样本不足提示；ROE 虚高说明；候选原因字段。
@@ -95,6 +95,21 @@ def _trunc(s, max_w):
         if w > max_w - 1:
             return s[:i] + '…'
     return s
+
+# ── v2.2.0-alpha2：待补录展示模式辅助 ────────────────────────
+def _is_pending(result):
+    """数据不足（待补录）→ 进入待补录展示模式，不输出公司质量结论。"""
+    return (str(result.get("final_decision", "")) == "数据不足（待补录）"
+            or str(result.get("data_status", "")) == "待补录")
+
+def _market_label(market):
+    return {"US": "美股", "CN": "A股"}.get(str(market).strip().upper(), "未知")
+
+def _uf(val):
+    """空字段统一显示为'未填写'，避免 '/10' 或空白。"""
+    s = str(val).strip()
+    return s if s else "未填写"
+
 
 def _fmt_vs(val):
     return f"+{val:.1f}" if val > 0 else f"{val:.1f}"
@@ -205,8 +220,17 @@ def merge_annual_data(stocks, fin_metrics):
 # ============================================================
 
 def calc_industry_comparison(results):
+    # v2.2.0-alpha2：数据不足（待补录）的股票不参与有效排名，
+    # 否则它们的 0 分会污染同行均值、产生误导性排名。
     groups = defaultdict(list)
     for r in results:
+        if _is_pending(r):
+            # 占位值，确保下游列存在；展示层会显示"数据不足，暂不参与有效排名"
+            r["industry_rank"]      = 0
+            r["industry_size"]      = 0
+            r["industry_avg_score"] = 0.0
+            r["score_vs_industry"]  = 0.0
+            continue
         groups[r["industry"]].append(r)
     for ind_stocks in groups.values():
         n   = len(ind_stocks)
@@ -329,7 +353,7 @@ def print_top10(df):
     W      = sum(w + 3 for _, w, _, _ in cols) + 1
 
     print("\n" + "=" * W)
-    print("  芒格式选股评分器 v2.0  —  评分前 10 名（含行业对比 & 数据模式）")
+    print("  芒格式选股评分器 v2.2.0-alpha2  —  评分前 10 名（含行业对比 & 数据模式）")
     print("=" * W);  print(sep);  print(header);  print(sep)
 
     for rank, (_, r) in enumerate(top10.iterrows(), start=1):
@@ -357,6 +381,14 @@ def print_top10(df):
 
 
 def print_score_detail(result):
+    # v2.2.0-alpha2：待补录股票不展示质量分项（缺失≠公司差）
+    if _is_pending(result):
+        mf = result.get("missing_fields", "") or ""
+        print(f"\n  [待补录][{result['ticker']}] {_uf(result.get('name'))}  "
+              f"（{_market_label(result.get('market'))}）  决策:{result['final_decision']}")
+        print(f"    数据不足，暂不输出质量结论；缺失：{mf if mf and mf != '（无）' else '关键财务字段'}")
+        return
+
     mode_tag = "[自动]" if result.get("data_mode") == "annual_financials" else "[手动]"
     wn = _trunc(result["warning_note"], 40) if result["warning_note"] else "无警告"
     td = result["_trend_detail"]
@@ -373,7 +405,51 @@ def print_score_detail(result):
         print(f"    ⚠ {wn}")
 
 
+def print_pending_detail(result):
+    """
+    v2.2.0-alpha2：待补录展示模式。
+    数据不足时只展示事实信息 + 下一步建议 + 免责声明，
+    绝不输出"生意质量差/护城河薄弱/估值偏高/管理层差"等质量结论。
+    """
+    W = 70
+    market = str(result.get("market", "")).strip().upper()
+    mf     = result.get("missing_fields", "") or ""
+
+    print("\n" + "=" * W)
+    print(f"  [{result['ticker']}] {_uf(result.get('name'))}  ·  待补录研究骨架")
+    print("─" * W)
+    print(f"  市场：{_market_label(market)}    币种：{_uf(result.get('currency'))}")
+    print(f"  数据状态：数据不足（待补录）")
+    print(f"  最终决策：{result.get('final_decision', '数据不足（待补录）')}")
+    print(f"  行业排名：数据不足，暂不参与有效排名")
+    print("─" * W)
+    print(f"  缺失关键财务字段：{mf if mf and mf != '（无）' else '（多项关键财务字段为空）'}")
+    print(f"  人工判断字段（护城河/管理层/能力圈/理由等）：待人工补录")
+    print("─" * W)
+    print("  【下一步建议】")
+    if market == "CN":
+        print("    · A股自动抓取暂未完整支持，当前仅创建本地研究骨架，")
+        print("      请通过人工补录或后续数据源导入补齐财务数据。")
+    elif market == "US":
+        print(f"    · 抓取财务数据： python fetcher.py {result['ticker']}")
+        print(f"                     python fetcher.py --valuation {result['ticker']}")
+    else:
+        print("    · 请确认代码与市场后补齐数据。")
+    print("    · 补录人工判断字段： python manual_review_helper.py --template")
+    print("    · 补齐后重新运行： python main.py " + result['ticker'])
+    print("─" * W)
+    print("  ★ 数据不足时本工具不输出任何公司质量结论 ★")
+    print("    缺失 ≠ 公司差；补齐数据后重新评分即可得到真实结果。")
+    print("    本工具仅为研究辅助，不构成任何买入/卖出/持有建议。")
+    print("=" * W)
+
+
 def print_detailed_analysis(result):
+    # v2.2.0-alpha2：数据不足 → 待补录展示模式，避免误导性质量判断
+    if _is_pending(result):
+        print_pending_detail(result)
+        return
+
     W = 70
 
     print("\n" + "=" * W)
@@ -418,8 +494,9 @@ def print_detailed_analysis(result):
     print("─" * W)
 
     # ── 数据质量 ─────────────────────────────────────────────
-    print(f"  【数据质量】  可信度：{result['confidence_score']}/10"
-          f"   能力圈：{result['circle_of_competence']}")
+    conf_str = f"{result['confidence_score']}/10" if str(result['confidence_score']).strip() else "未填写"
+    print(f"  【数据质量】  可信度：{conf_str}"
+          f"   能力圈：{_uf(result['circle_of_competence'])}")
     if result["warning_note"]:
         for w in result["warning_note"].split(" | "):
             print(f"    ⚠ {_compress_warnings(w)}")
@@ -587,7 +664,7 @@ def ensure_local(raw_ticker):
 
 def main():
     print("=" * 70)
-    print("   芒格式选股评分器  Munger Stock Screener  v2.0  自动数据版")
+    print("   芒格式选股评分器  Munger Stock Screener  v2.2.0-alpha2")
     print("=" * 70)
     print("★ 纯学习工具，不连接券商，不自动下单 ★\n")
 
@@ -643,6 +720,10 @@ def main():
         _missing = missing_key_quant_fields(row)
         result["missing_fields"] = "、".join(quant_labels(_missing)) if _missing else "（无）"
         result["data_status"]    = "待补录" if _missing else "完整"
+        # v2.2.0-alpha2：市场/币种/补录状态（供待补录展示模式使用）
+        result["market"]        = row.get("market", "")
+        result["currency"]      = row.get("currency", "")
+        result["review_status"] = row.get("review_status", "")
 
         # v1.8：注入数据模式和展示用的关键财务指标
         result["data_mode"]               = row.get("data_mode", "manual_fallback")

@@ -369,6 +369,9 @@ yfinance 偶尔超时，重试一次通常可以解决。已有 `annual_financia
 这是 v2.1.0 新增状态，用于**区分"数据缺失"和"公司质量差"**。当 PE、FCF Yield、ROIC、ROE、营收增速、D/E 等关键量化字段**缺失 ≥2 项**时，程序不会把它当成差公司死扣分，而是标记为待补录，引导你去 `manual_review_needed.csv` 按 `suggested_action` 补齐数据（如运行 `fetcher.py --watchlist`），补齐后重新 `python main.py` 即可得到真实评分。  
 `munger_score_result.csv` 和 `research_candidates.csv` 也新增了 `data_status` / `missing_fields` / `reason` 列，方便你看出"为什么值得研究、哪里还缺数据"。
 
+**Q：数据不足的股票，详情页会显示"质量很差"吗？**  
+**不会。** v2.2.0-alpha2 起，决策为"数据不足（待补录）"的股票进入**待补录展示模式**：只显示股票代码、市场、币种、数据状态、缺失字段、下一步建议和免责声明，**绝不输出"生意质量差 / 护城河薄弱 / 估值偏高 / 管理层差"等任何质量结论**（这些只是字段缺失被当成 0 分，并非真实判断）。这类股票也**不参与行业排名**，详情页显示"数据不足，暂不参与有效排名"。空字段统一显示为"未填写"。补齐数据后重新运行即可得到正常的完整分析。
+
 **Q：为什么同一只股票有时是"自动"模式有时是"手动"模式？**  
 `annual_financials.csv` 中有该 ticker 的年度数据时使用自动计算；没有时回退到 `stocks.csv` 中手填的财务数据。运行 `fetcher.py --watchlist` 可以为所有股票生成年度数据。
 
