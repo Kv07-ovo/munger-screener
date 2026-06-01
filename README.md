@@ -53,6 +53,26 @@ python main.py 000001.SZ     # 深交所
 
 > 数据访问层 `store.py` 为将来迁移到 SQLite 预留了统一接口；v2.2.0 仍使用 CSV。
 
+### A股数据支持（v2.4.0，AKShare）
+
+A股（沪/深/北）数据由 `providers/ashare_provider.py` 经 **AKShare** 自动抓取——**可选依赖**：
+
+```bash
+# 安装 A股数据支持（可选）
+pip install -r requirements-optional.txt
+
+python main.py 600519        # 自动规范化为 600519.SH，抓取 + 算分 + 研究卡片
+python main.py 000001.SZ     # 平安银行（银行业，自动套用金融类豁免）
+python main.py 300750        # 创业板；688981 科创板
+```
+
+- **未安装 akshare 时**：A股自动回退为「数据不足，待补录」，**不会崩、不会误判为差公司**；安装后重跑即可。
+- 自动抓取：名称/行业、PE、PB、市值、年度营收/净利润、ROE、毛利率、净利率（写入 `annual_financials.csv`，单位与美股一致）。
+- **拿不到的字段不造假、直接留空**进 `missing_fields`：ROIC、自由现金流（AKShare 无稳定口径）、银行/券商的 D-E（不适用）。
+- **银行/保险/券商**：自动识别为特殊金融类，不硬套普通企业 FCF Yield / 毛利率 / ROIC，缺数据进入「待补录」而非判差。
+- AKShare 全部调用封装在 `providers/ashare_provider.py`，`main.py` 只按市场分发，不出现 akshare 代码。
+- 所有 A股写入仍经 `store.py` 白名单：**绝不覆盖** `moat_score`/`management_score`/`circle_of_competence`/`notes` 等人工字段。
+
 ---
 
 ## 自动研究卡片（v2.3.0-alpha1）
@@ -119,6 +139,9 @@ munger_screener/
 ├── store.py              # v2.2.0：CSV 数据访问层 + 人工/机器/AI 三类白名单
 ├── research_card.py      # v2.3.0：自动研究卡片（机器财务分/质化分分区展示）
 ├── ai_analysis.py        # v2.3.0：AI 质化初判（HeuristicProvider 纯规则，只写 ai_*）
+├── providers/
+│   └── ashare_provider.py # v2.4.0：A股数据源（AKShare，可选依赖，唯一调用处）
+├── requirements-optional.txt # 可选依赖：akshare（A股数据支持）
 ├── add_stocks.py         # 向 stocks.csv 添加新股票框架（委托 store）
 ├── fetcher.py            # 自动抓取年度财务数据（yfinance）
 ├── manual_review_helper.py # 人工字段缺失检查 + Excel 模板生成/导入

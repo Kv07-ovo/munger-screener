@@ -1,0 +1,5 @@
+# 可选依赖（A股数据支持）
+# 安装：pip install -r requirements-optional.txt
+# 未安装时项目仍可运行，A股会回退为"数据不足，待补录"，不会崩、不会误判为差公司。
+
+akshare

@@ -18,3 +18,7 @@ output/*.xlsx
 # v2.3.0-alpha3：自动生成的研究卡片（保留目录与手写 *_report.txt）
 research_notes/*_card.md
 !research_notes/.gitkeep
+
+# v2.4.0：密钥/隐私（如 Tushare token 等），永不入库
+.env
+*.env

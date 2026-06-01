@@ -57,9 +57,13 @@ def _trend(first_val, last_val, threshold=0.10):
 
 
 def _cagr(start, end, years):
-    """复合年化增长率（%）。start/end 为 None 或非正数时返回 0.0。"""
-    if not start or not end or start <= 0 or end <= 0 or years <= 0:
-        return 0.0
+    """
+    复合年化增长率（%）。
+    v2.4.0：无有效数据（start/end 缺失或非正）时返回 ""（空），
+    而非 0.0——避免把"缺数据"误判成"零增长"。
+    """
+    if start is None or end is None or start <= 0 or end <= 0 or years <= 0:
+        return ""
     return round(((end / start) ** (1.0 / years) - 1) * 100, 2)
 
 
@@ -89,9 +93,13 @@ def compute_ticker_metrics(rows):
     last  = rows[-1]
 
     def avg(field):
-        """跳过空值求均值；全部为空时返回 0.0。"""
+        """
+        跳过空值求均值。
+        v2.4.0：全部年份都无有效数据时返回 ""（空），而非 0.0——
+        避免把"缺数据"误判成"指标为 0"，进而误判公司差。
+        """
         valid = [v for v in (_sfn(r.get(field)) for r in rows) if v is not None]
-        return round(sum(valid) / len(valid), 2) if valid else 0.0
+        return round(sum(valid) / len(valid), 2) if valid else ""
 
     # 5 年平均财务指标
     roe_avg  = avg("roe")
@@ -99,11 +107,14 @@ def compute_ticker_metrics(rows):
     gm_avg   = avg("gross_margin")
     nm_avg   = avg("net_margin")
 
-    # FCF 正数年数（空字符串视为 0，不计入正数）
-    fcf_pos = sum(1 for r in rows if (_sfn(r.get("free_cash_flow")) or 0) > 0)
+    # FCF 正数年数：v2.4.0 全无 FCF 数据 → ""（缺失），否则统计正数年数
+    _fcf_vals = [_sfn(r.get("free_cash_flow")) for r in rows]
+    fcf_pos   = "" if all(v is None for v in _fcf_vals) \
+                else sum(1 for v in _fcf_vals if (v or 0) > 0)
 
-    # 最新年 D/E
-    de_latest = _sfn(last.get("debt_to_equity")) or 0.0
+    # 最新年 D/E：v2.4.0 缺失 → ""（不再当成 0=零负债的虚假利好）
+    _de       = _sfn(last.get("debt_to_equity"))
+    de_latest = _de if _de is not None else ""
 
     # CAGR（年数用实际年份差）
     years_span = int(_sf(last.get("year"))) - int(_sf(first.get("year")))

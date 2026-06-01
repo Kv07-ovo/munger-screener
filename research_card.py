@@ -148,6 +148,15 @@ def _build_lines(result):
     out(f"  研究卡片 · {code} · {_uf(name)}    [{_market_label(market)} / {_uf(currency)}]")
     out(f"  板块: {_uf(sector)}   行业: {_uf(industry)}   "
         f"数据日期: {_uf(result.get('data_date'))}")
+    out(f"  数据来源: {_uf(result.get('data_source'))}")
+    # 估值快照（若有）：PE / PB / 市值
+    val_bits = []
+    for label, key, unit in (("PE", "pe", ""), ("PB", "pb", ""), ("市值", "market_cap", "亿")):
+        v = str(result.get(key, "")).strip()
+        if v:
+            val_bits.append(f"{label} {v}{unit}")
+    if val_bits:
+        out("  估值: " + "   ".join(val_bits))
     out("─" * _W)
 
     # ── 数据完整度 ──────────────────────────────────────────────
@@ -221,8 +230,14 @@ def _build_lines(result):
     steps = []
     if pending:
         mf = result.get("missing_fields", "") or ""
+        src = str(result.get("data_source", "")).strip()
         if str(market).strip().upper() == "CN":
-            steps.append("A股自动抓取暂未完整支持，当前仅为待补录研究骨架；请人工补录或后续数据源导入。")
+            if "AKShare" in src:
+                steps.append("已通过 AKShare 抓取基础财务；ROIC/FCF/D-E 等 AKShare 无稳定来源，"
+                             "需人工或其他数据源补齐（缺失≠公司差）。")
+            else:
+                steps.append("A股数据未接入（未安装 akshare）；当前为待补录骨架，"
+                             "可 pip install -r requirements-optional.txt 后重跑。")
         elif str(market).strip().upper() == "US":
             steps.append(f"抓取财务： python fetcher.py {code}")
         if mf and mf != "（无）":

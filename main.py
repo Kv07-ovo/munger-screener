@@ -78,6 +78,9 @@ _DEFAULTS = {
     "ai_model":            "",
     "ai_generated_at":     "",
     "needs_human_review":  "",
+    # v2.4.0：A股/通用估值
+    "pb":                  "",
+    "market_cap":          "",
 }
 
 # ── v1.8：可被年度财务数据自动覆盖的字段（只有这些）──────────
@@ -614,6 +617,20 @@ def lookup_ticker(ticker, all_results):
 # v2.2.0-alpha1：按需查询——确保代码在本地存在（必要时建骨架/抓取）
 # ============================================================
 
+def _has_annual(canonical):
+    """annual_financials.csv 是否已有该 ticker 的年度财务（用于判断 A股是否需刷新）。"""
+    if not os.path.exists(ANNUAL_PATH):
+        return False
+    try:
+        import csv as _csv
+        with open(ANNUAL_PATH, encoding="utf-8-sig", newline="") as f:
+            t = str(canonical).strip().upper()
+            return any(str(row.get("ticker", "")).strip().upper() == t
+                       for row in _csv.DictReader(f))
+    except Exception:
+        return False
+
+
 def ensure_local(raw_ticker):
     """
     识别并规范化代码，确保其在本地 stocks.csv 中存在。
@@ -633,15 +650,16 @@ def ensure_local(raw_ticker):
         print("  支持格式：美股 AAPL / BRK-B；A股 600519 / 600519.SH / 000001.SZ")
         return None
 
-    if store.exists(r.canonical):
+    existed = store.exists(r.canonical)
+    if existed:
         print(f"  本地已有 {r.canonical}（{r.market}），直接分析。")
-        return r.canonical
+    else:
+        print(f"\n  本地无 {r.canonical}，创建骨架"
+              f"（market={r.market} currency={r.currency}，人工字段留空待补录）...")
+        store.upsert_skeleton(r)
 
-    print(f"\n  本地无 {r.canonical}，创建骨架"
-          f"（market={r.market} currency={r.currency}，人工字段留空待补录）...")
-    store.upsert_skeleton(r)
-
-    if r.market == "US" and r.autofetch_supported:
+    # 美股：仅在新建时自动抓取（避免每次查询都打 yfinance）
+    if r.market == "US" and r.autofetch_supported and not existed:
         try:
             import fetcher
         except Exception as e:
@@ -677,9 +695,26 @@ def ensure_local(raw_ticker):
                 print(f"  估值已写入（经 store 白名单）：{fields}")
         except Exception as e:
             print(f"  ⚠ 估值抓取失败（{e}），可稍后运行 fetcher.py --valuation。")
-    else:
-        print("  A股第一阶段仅建骨架、不自动抓取财务；请人工补录或待后续阶段支持。")
-        print("  （数据不足将显示『数据不足（待补录）』，不会被误判为差公司。）")
+    elif r.market == "CN":
+        # A股：新建必抓；已存在但尚无年度财务则刷新。akshare 调用全封装在 provider 层。
+        if existed and _has_annual(r.canonical):
+            pass   # 已有年度财务，不重复抓取
+        else:
+            try:
+                from providers import ashare_provider
+            except Exception as e:
+                ashare_provider = None
+                print(f"  ⚠ 无法加载 ashare_provider（{e}），A股回退待补录。")
+            if ashare_provider and ashare_provider.is_available():
+                print("  使用 AKShare 抓取 A股数据（基础信息/估值/年度财务）...")
+                try:
+                    ashare_provider.ingest(r.canonical, r.exchange)
+                except Exception as e:
+                    print(f"  ⚠ AKShare 抓取异常（{e}），保留骨架，待补录（不误判为差公司）。")
+            else:
+                print("  未安装 akshare，A股回退为『数据不足，待补录』。")
+                print("  安装 A股数据支持： pip install -r requirements-optional.txt")
+                print("  （安装后重跑即可；当前不会误判为差公司。）")
 
     return r.canonical
 
@@ -789,6 +824,9 @@ def main():
         result["sector"]        = row.get("sector", "")
         result["country"]       = row.get("country", "")
         result["risk_note"]     = row.get("risk_note", "")
+        result["pe"]            = row.get("pe", "")           # v2.4.0（卡片估值行）
+        result["pb"]            = row.get("pb", "")           # v2.4.0
+        result["market_cap"]    = row.get("market_cap", "")   # v2.4.0
         # v2.3.0-alpha2：透传已存的 AI 暂定字段（供卡片展示）
         for _aif in ("ai_moat_score", "ai_management_score", "ai_risk_flags",
                      "ai_confidence", "ai_reason", "ai_evidence_needed",

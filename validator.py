@@ -44,20 +44,32 @@ _TICKER_INDUSTRY_HINTS: dict[str, str] = {
     "JPM": "银行", "BAC": "银行", "WFC": "银行", "GS": "银行", "C": "银行",
     "BRK-B": "综合控股", "BRK-A": "综合控股",
     "AIG": "保险", "MET": "保险", "PRU": "保险",
+    # v2.4.0：A股金融类回退提示（AKShare 行业缺失时兜底）
+    "000001.SZ": "银行", "601398.SH": "银行", "601318.SH": "保险", "600030.SH": "证券",
 }
+
+# v2.4.0：银行/保险/券商统一作为"特殊金融类"——FCF Yield/毛利率/FCF年数 不适用
+_FINANCIAL_EXEMPT = {"fcf_yield", "gross_margin_5y_avg", "fcf_positive_years"}
+_FINANCIAL_WARN   = {"缺少gross_margin", "缺少free_cash_flow"}
 
 # REQUIRED_FIELDS 中对特殊行业免检的字段（不产生"关键字段缺失"警告）
 _INDUSTRY_REQUIRED_EXEMPT: dict[str, set] = {
-    "银行":    {"fcf_yield", "gross_margin_5y_avg", "fcf_positive_years"},
-    "保险":    {"gross_margin_5y_avg", "fcf_yield"},
-    "综合控股": {"gross_margin_5y_avg"},
+    "银行":     _FINANCIAL_EXEMPT,
+    "保险":     _FINANCIAL_EXEMPT,
+    "证券":     _FINANCIAL_EXEMPT,   # v2.4.0 券商/证券
+    "券商":     _FINANCIAL_EXEMPT,
+    "资本市场":  _FINANCIAL_EXEMPT,
+    "综合控股":  {"gross_margin_5y_avg"},
 }
 
 # _fin_data_warning 中对特殊行业应屏蔽的关键词
 _INDUSTRY_FIN_WARN_SUPPRESS: dict[str, set] = {
-    "银行":    {"缺少gross_margin", "缺少free_cash_flow"},
-    "综合控股": {"缺少gross_margin"},
-    "保险":    {"缺少gross_margin"},
+    "银行":     _FINANCIAL_WARN,
+    "保险":     _FINANCIAL_WARN,
+    "证券":     _FINANCIAL_WARN,
+    "券商":     _FINANCIAL_WARN,
+    "资本市场":  _FINANCIAL_WARN,
+    "综合控股":  {"缺少gross_margin"},
 }
 
 
@@ -229,6 +241,11 @@ def validate_data(row):
         warnings.append(
             "银行业不适合用普通企业 FCF Yield / 毛利率评价，"
             "应参考ROE、资本充足率、坏账率、净息差等银行指标。"
+        )
+    elif any(k in ind for k in ("证券", "券商", "资本市场")):
+        warnings.append(
+            "证券/券商财务口径特殊，普通 FCF Yield / 毛利率 / ROIC 参考价值有限，"
+            "应参考ROE、净资本、自营/经纪/投行收入结构等。"
         )
     elif "保险" in ind or "综合控股" in ind:
         warnings.append(

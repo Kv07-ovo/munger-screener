@@ -54,7 +54,9 @@ _V230_AI_COLUMNS = [
     "ai_reason", "ai_evidence_needed", "ai_model", "ai_generated_at",
     "needs_human_review",
 ]
-NEW_COLUMNS = _V220_COLUMNS + _V230_PROFILE_COLUMNS + _V230_AI_COLUMNS
+# v2.4.0 新增列：A股/通用估值（机器写入，PB 与市值）
+_V240_COLUMNS = ["pb", "market_cap"]
+NEW_COLUMNS = _V220_COLUMNS + _V230_PROFILE_COLUMNS + _V230_AI_COLUMNS + _V240_COLUMNS
 ALL_COLUMNS = BASE_COLUMNS + NEW_COLUMNS
 
 # ── 字段分类：白名单是「人工字段不被覆盖」的核心保障 ─────────────
