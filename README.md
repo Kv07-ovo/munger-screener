@@ -55,6 +55,28 @@ python main.py 000001.SZ     # 深交所
 
 ---
 
+## 自动研究卡片（v2.3.0-alpha1）
+
+`python main.py <ticker>` 现在输出一张**研究卡片**，把三类信息明确分区，避免误导：
+
+```
+【机器财务评分（客观，满分75）】   ← 纯财务计算：生意质量/成长/负债/估值
+【质化评分（人工权威 / AI暂定）】   ← 护城河/管理层/风险
+【研究优先级】高/中/低             ← 仅研究排序，非买卖建议
+```
+
+要点：
+- **机器财务分与质化分分区展示**：机器分只来自客观财务数据；质化分（护城河/管理层）来自人工，
+  人工为空时显示「未评估」，**绝不把缺失当成 0 分判差**。
+- 美股查询时自动补全基础信息（`long_name` / `sector` / `industry` / `country`）。
+- **AI 质化判断**：alpha1 固定显示「未生成（alpha2 启用）」，本阶段不接 LLM、不引入新依赖。
+  AI 将来只能写 `ai_*` 字段（`ai_moat_score` / `ai_confidence` / `ai_evidence_needed` / `needs_human_review` 等），
+  **永远不会覆盖** `moat_score` / `management_score` / `circle_of_competence` / `notes` 等人工字段。
+- 数据不足的股票卡片显示「数据不足（待补录）」，不输出任何公司质量结论。
+- 全程不输出买入/卖出/持有建议。
+
+---
+
 ## 文件结构
 
 ```
@@ -69,7 +91,8 @@ munger_screener/
 │   ├── manual_fill_template.csv  # 人工补录模板（CSV 格式）
 │   └── manual_fill_template.xlsx # 人工补录模板（Excel 格式，推荐）
 ├── ticker_resolver.py    # v2.2.0：识别市场(US/CN)+规范化代码
-├── store.py              # v2.2.0：CSV 数据访问层 + 人工字段白名单保护
+├── store.py              # v2.2.0：CSV 数据访问层 + 人工/机器/AI 三类白名单
+├── research_card.py      # v2.3.0：自动研究卡片（机器财务分/质化分分区展示）
 ├── add_stocks.py         # 向 stocks.csv 添加新股票框架（委托 store）
 ├── fetcher.py            # 自动抓取年度财务数据（yfinance）
 ├── manual_review_helper.py # 人工字段缺失检查 + Excel 模板生成/导入

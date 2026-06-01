@@ -26,6 +26,7 @@ except ImportError:
 from preflight          import run_preflight, print_report   # v2.1.0
 import store                                                  # v2.2.0-alpha1
 from ticker_resolver     import resolve, UNKNOWN              # v2.2.0-alpha1
+import research_card                                          # v2.3.0-alpha1
 from scorer             import score_stock, generate_narrative
 from validator          import (validate_data, get_final_decision, filter_fin_warning,
                                  missing_key_quant_fields, quant_labels)
@@ -62,6 +63,19 @@ _DEFAULTS = {
     "currency":          "",
     "canonical_ticker":  "",
     "review_status":     "",
+    # v2.3.0-alpha1：基础信息 + AI 质化层占位（alpha1 全空，alpha2 启用）
+    "long_name":         "",
+    "sector":            "",
+    "country":           "",
+    "ai_moat_score":       "",
+    "ai_management_score": "",
+    "ai_risk_score":       "",
+    "ai_confidence":       "",
+    "ai_reason":           "",
+    "ai_evidence_needed":  "",
+    "ai_model":            "",
+    "ai_generated_at":     "",
+    "needs_human_review":  "",
 }
 
 # ── v1.8：可被年度财务数据自动覆盖的字段（只有这些）──────────
@@ -634,13 +648,23 @@ def ensure_local(raw_ticker):
         if not getattr(fetcher, "_HAS_YF", False):
             print("  ⚠ 未安装 yfinance，保留骨架，跳过自动抓取（pip install yfinance）。")
             return r.canonical
-        # 1) 年度财务 → annual_financials.csv（机器专用文件）
+        # 1) 基础信息 profile → 经 store 白名单写回（v2.3.0-alpha1）
+        try:
+            prof   = fetcher.fetch_profile_yf(r.provider_symbol)
+            fields = {k: v for k, v in prof.items() if v}   # 仅写非空，industry 覆盖 Unknown
+            if fields:
+                store.update_machine_fields(r.canonical, fields)
+                print(f"  基础信息已写入（经 store 白名单）：{fields.get('long_name','')}"
+                      f" / {fields.get('sector','')} / {fields.get('industry','')}")
+        except Exception as e:
+            print(f"  ⚠ 基础信息抓取失败（{e}），保留骨架。")
+        # 2) 年度财务 → annual_financials.csv（机器专用文件）
         print(f"  正在抓取 {r.provider_symbol} 年度财务数据...")
         try:
             fetcher.fetch_and_update([r.provider_symbol])
         except Exception as e:
             print(f"  ⚠ 年度财务抓取失败（{e}），保留骨架，可稍后重试。")
-        # 2) 估值 pe/fcf_yield → 经 store 白名单写回 stocks.csv
+        # 3) 估值 pe/fcf_yield → 经 store 白名单写回 stocks.csv
         try:
             val    = fetcher.fetch_valuation_yf(r.provider_symbol)
             fields = {}
@@ -724,6 +748,11 @@ def main():
         result["market"]        = row.get("market", "")
         result["currency"]      = row.get("currency", "")
         result["review_status"] = row.get("review_status", "")
+        # v2.3.0-alpha1：基础信息 + 风险短标签（供研究卡片展示）
+        result["long_name"]     = row.get("long_name", "")
+        result["sector"]        = row.get("sector", "")
+        result["country"]       = row.get("country", "")
+        result["risk_note"]     = row.get("risk_note", "")
 
         # v1.8：注入数据模式和展示用的关键财务指标
         result["data_mode"]               = row.get("data_mode", "manual_fallback")
@@ -793,7 +822,13 @@ def main():
 
     # ── 步骤 11：单股查询 ─────────────────────────────────────────
     if len(sys.argv) > 1:
-        lookup_ticker(query_canonical or sys.argv[1], results)
+        # v2.3.0-alpha1：CLI 单股输出改为「研究卡片」
+        tk = (query_canonical or sys.argv[1]).strip().upper()
+        matched = [r for r in results if r["ticker"].upper() == tk]
+        if matched:
+            research_card.render(matched[0])
+        else:
+            print(f"\n  未找到 '{tk}'，可用代码：{', '.join(r['ticker'] for r in results)}")
     else:
         print("─" * 70)
         print("  输入股票代码查看深度分析，直接回车退出")

@@ -324,6 +324,39 @@ def fetch_valuation_yf(ticker):
     }
 
 
+# ============================================================
+# v2.3.0-alpha1：基础信息（profile）抓取
+# ============================================================
+
+def fetch_profile_yf(ticker):
+    """
+    用 yfinance info 抓取公司基础信息。
+    返回 dict：long_name / sector / industry / country / currency
+              （缺失项为 ""）。抓取失败抛 RuntimeError，由调用方兜底。
+    纯机器信息，经 store 白名单写入，不触碰人工字段。
+    """
+    t = yf.Ticker(ticker)
+    try:
+        info = t.info
+    except Exception as e:
+        raise RuntimeError(f"yfinance.info 获取失败：{e}") from e
+
+    def _s(*keys):
+        for k in keys:
+            v = info.get(k)
+            if v not in (None, ""):
+                return str(v).strip()
+        return ""
+
+    return {
+        "long_name": _s("longName", "shortName"),
+        "sector":    _s("sector"),
+        "industry":  _s("industry"),
+        "country":   _s("country"),
+        "currency":  _s("financialCurrency", "currency"),
+    }
+
+
 def update_stocks_valuation(tickers, force=False):
     """
     对 tickers 逐个调用 fetch_valuation_yf，

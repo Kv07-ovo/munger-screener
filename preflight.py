@@ -119,11 +119,13 @@ def run_preflight():
             if missing_rec:
                 add(WARN, f"stocks.csv 缺少推荐列：{', '.join(missing_rec)}",
                     "不影响运行（会用默认值兜底），建议补上以获得完整展示与行业对比。")
-            # v2.2.0-alpha1：市场/币种/规范化列缺失只提示（首次写入时自动补全）
-            missing_v220 = [c for c in ("market", "currency", "canonical_ticker", "review_status")
-                            if c not in cols]
-            if missing_v220:
-                add(INFO, f"stocks.csv 暂无 v2.2.0 列：{', '.join(missing_v220)}",
+            # v2.2.0/v2.3.0 新列缺失只提示（首次写入时由 store.py 自动补全）
+            _new_cols = ("market", "currency", "canonical_ticker", "review_status",
+                         "long_name", "sector", "country",
+                         "ai_moat_score", "ai_management_score", "needs_human_review")
+            missing_new = [c for c in _new_cols if c not in cols]
+            if missing_new:
+                add(INFO, f"stocks.csv 暂无 v2.2/v2.3 列：{', '.join(missing_new)}",
                     "无需处理：运行/添加股票时由 store.py 自动补全（向后兼容）。")
 
     # ── 4. annual_financials.csv 检查（缺失不致命）───────────

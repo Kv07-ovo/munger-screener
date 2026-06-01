@@ -43,23 +43,33 @@ BASE_COLUMNS = [
     "roe_trend", "roic_trend", "margin_trend", "revenue_trend", "debt_reason",
 ]
 # v2.2.0-alpha1 新增列（追加到末尾，向后兼容，不改动现有列位置）
-NEW_COLUMNS = ["market", "currency", "canonical_ticker", "review_status"]
+_V220_COLUMNS = ["market", "currency", "canonical_ticker", "review_status"]
+# v2.3.0-alpha1 新增列：基础信息 + AI 质化层占位（alpha1 全空，alpha2 启用写入）
+_V230_PROFILE_COLUMNS = ["long_name", "sector", "country"]
+_V230_AI_COLUMNS = [
+    "ai_moat_score", "ai_management_score", "ai_risk_score", "ai_confidence",
+    "ai_reason", "ai_evidence_needed", "ai_model", "ai_generated_at",
+    "needs_human_review",
+]
+NEW_COLUMNS = _V220_COLUMNS + _V230_PROFILE_COLUMNS + _V230_AI_COLUMNS
 ALL_COLUMNS = BASE_COLUMNS + NEW_COLUMNS
 
 # ── 字段分类：白名单是「人工字段不被覆盖」的核心保障 ─────────────
-# 人工判断字段：自动写入永远不碰
+# 人工判断字段：自动写入（机器 + AI）永远不碰
 MANUAL_PROTECTED = {
     "moat_score", "management_score", "circle_of_competence", "confidence_score",
     "brand_score", "switching_cost_score", "network_effect_score",
     "scale_advantage_score", "pricing_power_score", "moat_durability_score",
     "moat_reason", "management_reason", "risk_note", "risk_reason", "debt_reason",
 }
+# AI 质化层：仅 ai_analysis 可写（alpha2 起）；不得写入人工/机器/身份字段
+AI_WRITABLE = set(_V230_AI_COLUMNS)
 # 身份键（仅建骨架时写，机器更新不动）
 _IDENTITY = {"ticker", "canonical_ticker"}
 # 状态列（由人工补录流程管理，不归机器自动写）
 _STATUS = {"review_status"}
-# 机器可写：其余全部（财务量化、估值、市场基础信息、趋势等）
-MACHINE_WRITABLE = set(ALL_COLUMNS) - MANUAL_PROTECTED - _IDENTITY - _STATUS
+# 机器可写：其余全部（财务量化、估值、市场基础信息、趋势等），且不含 AI 列
+MACHINE_WRITABLE = set(ALL_COLUMNS) - MANUAL_PROTECTED - AI_WRITABLE - _IDENTITY - _STATUS
 
 REVIEW_PENDING  = "pending_manual_review"
 REVIEW_COMPLETE = "complete"
@@ -174,6 +184,7 @@ def _build_skeleton(resolved):
     row["data_date"]        = date.today().isoformat()
     row["data_source"]      = "yfinance(pending)" if resolved.market == "US" else "pending_fetch"
     row["review_status"]    = REVIEW_PENDING
+    row["needs_human_review"] = "true"   # v2.3.0：质化字段尚待 AI/人工
     return row
 
 
@@ -240,13 +251,17 @@ def _selftest():
         r0 = rows[0]
         print(f"  示例：{r0['ticker']}  canonical={r0['canonical_ticker']} "
               f"market={r0['market']} currency={r0['currency']}")
-    print(f"  MACHINE_WRITABLE（{len(MACHINE_WRITABLE)}）："
-          f"{', '.join(sorted(MACHINE_WRITABLE))}")
-    print(f"  MANUAL_PROTECTED（{len(MANUAL_PROTECTED)}，自动写入永不触碰）："
+    print(f"  列总数：{len(ALL_COLUMNS)}")
+    print(f"  MACHINE_WRITABLE（{len(MACHINE_WRITABLE)}）")
+    print(f"  AI_WRITABLE（{len(AI_WRITABLE)}，仅 ai_analysis 可写）："
+          f"{', '.join(sorted(AI_WRITABLE))}")
+    print(f"  MANUAL_PROTECTED（{len(MANUAL_PROTECTED)}，机器+AI 永不触碰）："
           f"{', '.join(sorted(MANUAL_PROTECTED))}")
-    # 验证保护：尝试写人工字段应被拒绝
-    overlap = MANUAL_PROTECTED & MACHINE_WRITABLE
-    print(f"  保护自检：人工字段与机器白名单交集 = {overlap or '∅（无交集，安全）'}")
+    # 三类白名单必须互不相交
+    print("  互斥自检：")
+    print(f"    人工 ∩ 机器 = {(MANUAL_PROTECTED & MACHINE_WRITABLE) or '∅'}")
+    print(f"    人工 ∩ AI   = {(MANUAL_PROTECTED & AI_WRITABLE) or '∅'}")
+    print(f"    机器 ∩ AI   = {(MACHINE_WRITABLE & AI_WRITABLE) or '∅'}")
 
 
 if __name__ == "__main__":
