@@ -1,5 +1,5 @@
 # ============================================================
-# main.py  —  芒格式选股评分器：主程序  v2.2.0-alpha2
+# main.py  —  芒格式选股评分器：主程序  v2.3.0-alpha2
 #
 # v2.0 新增：fetcher.py 自动抓取数据；压缩重复警告；
 #            行业样本不足提示；ROE 虚高说明；候选原因字段。
@@ -27,6 +27,7 @@ from preflight          import run_preflight, print_report   # v2.1.0
 import store                                                  # v2.2.0-alpha1
 from ticker_resolver     import resolve, UNKNOWN              # v2.2.0-alpha1
 import research_card                                          # v2.3.0-alpha1
+import ai_analysis                                            # v2.3.0-alpha2
 from scorer             import score_stock, generate_narrative
 from validator          import (validate_data, get_final_decision, filter_fin_warning,
                                  missing_key_quant_fields, quant_labels)
@@ -70,6 +71,7 @@ _DEFAULTS = {
     "ai_moat_score":       "",
     "ai_management_score": "",
     "ai_risk_score":       "",
+    "ai_risk_flags":       "",
     "ai_confidence":       "",
     "ai_reason":           "",
     "ai_evidence_needed":  "",
@@ -367,7 +369,7 @@ def print_top10(df):
     W      = sum(w + 3 for _, w, _, _ in cols) + 1
 
     print("\n" + "=" * W)
-    print("  芒格式选股评分器 v2.2.0-alpha2  —  评分前 10 名（含行业对比 & 数据模式）")
+    print("  芒格式选股评分器 v2.3.0-alpha2  —  评分前 10 名（含行业对比 & 数据模式）")
     print("=" * W);  print(sep);  print(header);  print(sep)
 
     for rank, (_, r) in enumerate(top10.iterrows(), start=1):
@@ -682,13 +684,46 @@ def ensure_local(raw_ticker):
     return r.canonical
 
 
+def generate_ai_for(canonical, stocks, results):
+    """
+    v2.3.0-alpha2：为查询的单只股票生成「AI 暂定质化判断」并经 store 白名单持久化。
+    - 用合并后的财务指标喂 HeuristicProvider（纯规则）。
+    - 数据不足时不编分（ai_analysis 内部处理）。
+    - 只写 ai_* 字段（store.update_ai_fields 白名单保护人工字段）。
+    - 同步注入 result，供卡片即时展示。
+    """
+    canonical = str(canonical).strip().upper()
+    row = next((r for r in stocks
+                if str(r.get("canonical_ticker") or r.get("ticker", "")).strip().upper() == canonical),
+               None)
+    res = next((r for r in results if r["ticker"].strip().upper() == canonical), None)
+    if row is None or res is None:
+        return
+
+    is_pending = (str(res.get("final_decision", "")) == "数据不足（待补录）"
+                  or str(res.get("data_status", "")) == "待补录")
+    metrics = {k: row.get(k) for k in (
+        "roe_5y_avg", "roic_5y_avg", "gross_margin_5y_avg", "net_margin_5y_avg",
+        "revenue_growth_5y_cagr", "debt_to_equity", "fcf_positive_years", "pe",
+        "roe_trend", "roic_trend", "margin_trend", "revenue_trend", "sector", "industry")}
+    metrics["is_pending"] = is_pending
+
+    aiq    = ai_analysis.analyze(metrics)
+    fields = aiq.to_store_dict()
+    store.update_ai_fields(canonical, fields)   # 只写 ai_*，拒绝人工字段
+    for k, v in fields.items():                 # 注入 result 供卡片展示
+        res[k] = v
+    print(f"  AI 暂定判断已生成（{aiq.ai_model}，置信度 {aiq.ai_confidence}，"
+          f"仅供参考、非人工确认、需人工复核）")
+
+
 # ============================================================
 # 主程序
 # ============================================================
 
 def main():
     print("=" * 70)
-    print("   芒格式选股评分器  Munger Stock Screener  v2.2.0-alpha2")
+    print("   芒格式选股评分器  Munger Stock Screener  v2.3.0-alpha2")
     print("=" * 70)
     print("★ 纯学习工具，不连接券商，不自动下单 ★\n")
 
@@ -753,6 +788,11 @@ def main():
         result["sector"]        = row.get("sector", "")
         result["country"]       = row.get("country", "")
         result["risk_note"]     = row.get("risk_note", "")
+        # v2.3.0-alpha2：透传已存的 AI 暂定字段（供卡片展示）
+        for _aif in ("ai_moat_score", "ai_management_score", "ai_risk_flags",
+                     "ai_confidence", "ai_reason", "ai_evidence_needed",
+                     "ai_model", "ai_generated_at", "needs_human_review"):
+            result[_aif] = row.get(_aif, "")
 
         # v1.8：注入数据模式和展示用的关键财务指标
         result["data_mode"]               = row.get("data_mode", "manual_fallback")
@@ -826,6 +866,7 @@ def main():
         tk = (query_canonical or sys.argv[1]).strip().upper()
         matched = [r for r in results if r["ticker"].upper() == tk]
         if matched:
+            generate_ai_for(tk, stocks, results)   # v2.3.0-alpha2：生成 AI 暂定判断
             research_card.render(matched[0])
         else:
             print(f"\n  未找到 '{tk}'，可用代码：{', '.join(r['ticker'] for r in results)}")

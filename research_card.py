@@ -122,19 +122,46 @@ def render(result):
     print("─" * _W)
 
     # ── 质化评分（人工权威 / AI暂定，与机器分分开）──────────────
+    human   = _qual_evaluated(result)
+    ai_on   = bool(str(result.get("ai_model", "")).strip())
+    ai_moat = str(result.get("ai_moat_score", "")).strip()
+    ai_mgmt = str(result.get("ai_management_score", "")).strip()
+    ai_conf = str(result.get("ai_confidence", "")).strip() or "—"
+
     print("  【质化评分（人工权威 / AI暂定，与机器分分开）】")
-    if _qual_evaluated(result):
+    if human:
         moat = _f(result, "moat_score")
         mgmt = _f(result, "management_score")
-        print(f"    护城河   人工: {moat:.0f}/20    AI暂定: 未生成(alpha2启用)")
-        print(f"    管理层   人工: {mgmt:.0f}/5     AI暂定: 未生成(alpha2启用)")
+        ref_m = f"（参考 AI暂定 {ai_moat}/10）" if ai_moat else ""
+        ref_g = f"（参考 AI暂定 {ai_mgmt}/10）" if ai_mgmt else ""
+        print(f"    护城河   人工: {moat:.0f}/20  {ref_m}")
+        print(f"    管理层   人工: {mgmt:.0f}/5   {ref_g}")
         print(f"    风险标记 人工: {_uf(result.get('risk_note'))}")
-        print(f"    → needs_human_review: false（人工已评）")
+        print(f"    → 人工已确认（权威）；AI 仅作旁边参考")
+    elif ai_moat or ai_mgmt:
+        print(f"    护城河   人工: 未评估   AI暂定: {ai_moat or '—'}/10"
+              f"（置信度 {ai_conf}，AI暂定·非人工确认·待证实）")
+        print(f"    管理层   人工: 未评估   AI暂定: {ai_mgmt or '—'}/10"
+              f"（置信度 {ai_conf}，AI暂定·非人工确认·需读年报）")
+        print(f"    风险标记 人工: 未填写   AI暂定: {_uf(result.get('ai_risk_flags'))}")
+        print(f"    → needs_human_review: true（AI 暂定，需人工复核）")
     else:
-        print("    护城河   人工: 未评估    AI暂定: 未生成(alpha2启用)   /20")
-        print("    管理层   人工: 未评估    AI暂定: 未生成(alpha2启用)   /5")
-        print("    风险标记 人工: 未填写    AI暂定: 未生成(alpha2启用)")
+        print("    护城河   人工: 未评估   AI暂定: 数据不足，未生成（需人工复核）   /10")
+        print("    管理层   人工: 未评估   AI暂定: 数据不足，未生成（需人工复核）   /10")
+        print("    风险标记 人工: 未填写")
         print("    → needs_human_review: true")
+    print("─" * _W)
+
+    # ── AI 初步质化判断详情（AI 暂定，非人工确认）───────────────
+    print("  【AI 初步质化判断（AI 暂定，非人工确认）】")
+    if ai_on:
+        print(f"    模型: {_uf(result.get('ai_model'))}   置信度: {ai_conf}"
+              f"   生成: {_uf(result.get('ai_generated_at'))}")
+        print(f"    判断: {_uf(result.get('ai_reason'))}")
+        print(f"    待补证据: {_uf(result.get('ai_evidence_needed'))}")
+        print("    （以上为 AI 暂定、非人工确认，需人工复核；不构成投资建议）")
+    else:
+        print("    未生成（运行 python main.py <代码> 触发；数据不足时不生成）")
     print("─" * _W)
 
     # ── 研究优先级（非买卖建议）─────────────────────────────────

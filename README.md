@@ -69,9 +69,15 @@ python main.py 000001.SZ     # 深交所
 - **机器财务分与质化分分区展示**：机器分只来自客观财务数据；质化分（护城河/管理层）来自人工，
   人工为空时显示「未评估」，**绝不把缺失当成 0 分判差**。
 - 美股查询时自动补全基础信息（`long_name` / `sector` / `industry` / `country`）。
-- **AI 质化判断**：alpha1 固定显示「未生成（alpha2 启用）」，本阶段不接 LLM、不引入新依赖。
-  AI 将来只能写 `ai_*` 字段（`ai_moat_score` / `ai_confidence` / `ai_evidence_needed` / `needs_human_review` 等），
-  **永远不会覆盖** `moat_score` / `management_score` / `circle_of_competence` / `notes` 等人工字段。
+- **AI 初步质化判断（v2.3.0-alpha2，HeuristicProvider 纯规则，零依赖）**：查询单只股票时，
+  `ai_analysis.py` 用财务指标生成**护城河 / 管理层（0–10）暂定分 + 风险标记 + 置信度 + 待补证据**，
+  写入 `ai_*` 字段。要点：
+  - 置信度**封顶 0.5**，措辞一律「可能 / 待证实 / 需人工复核」，**不写确定结论**；
+  - **数据不足时不编分**（`ai_confidence=0`，moat/management 留空）；
+  - AI **只能写** `ai_*` 字段（经 `store.update_ai_fields` 白名单），
+    **永远不会覆盖** `moat_score` / `management_score` / `circle_of_competence` / `notes` / 各 `reason` / `risk_note` 等人工字段；
+  - **人工字段有值时人工优先**，AI 仅在旁边标注「AI 暂定，非人工确认」作参考；
+  - 真正的 LLM 后端是 alpha4 的可选功能，本阶段不接 LLM、不引入新依赖。
 - 数据不足的股票卡片显示「数据不足（待补录）」，不输出任何公司质量结论。
 - 全程不输出买入/卖出/持有建议。
 
@@ -93,6 +99,7 @@ munger_screener/
 ├── ticker_resolver.py    # v2.2.0：识别市场(US/CN)+规范化代码
 ├── store.py              # v2.2.0：CSV 数据访问层 + 人工/机器/AI 三类白名单
 ├── research_card.py      # v2.3.0：自动研究卡片（机器财务分/质化分分区展示）
+├── ai_analysis.py        # v2.3.0：AI 质化初判（HeuristicProvider 纯规则，只写 ai_*）
 ├── add_stocks.py         # 向 stocks.csv 添加新股票框架（委托 store）
 ├── fetcher.py            # 自动抓取年度财务数据（yfinance）
 ├── manual_review_helper.py # 人工字段缺失检查 + Excel 模板生成/导入

@@ -47,7 +47,10 @@ _V220_COLUMNS = ["market", "currency", "canonical_ticker", "review_status"]
 # v2.3.0-alpha1 新增列：基础信息 + AI 质化层占位（alpha1 全空，alpha2 启用写入）
 _V230_PROFILE_COLUMNS = ["long_name", "sector", "country"]
 _V230_AI_COLUMNS = [
-    "ai_moat_score", "ai_management_score", "ai_risk_score", "ai_confidence",
+    "ai_moat_score", "ai_management_score",
+    "ai_risk_score",   # 保留备用：未来用于数字化风险分（alpha2 暂不写）
+    "ai_risk_flags",   # v2.3.0-alpha2：文本风险标记，如 "估值偏高; 周期性; 高杠杆"
+    "ai_confidence",
     "ai_reason", "ai_evidence_needed", "ai_model", "ai_generated_at",
     "needs_human_review",
 ]
@@ -240,6 +243,40 @@ def update_machine_fields(canonical, fields: dict):
     return updated, rejected
 
 
+def update_ai_fields(canonical, fields: dict):
+    """
+    v2.3.0-alpha2：只更新 AI_WRITABLE 列（ai_* + needs_human_review）。
+    非 AI_WRITABLE 的 key（尤其人工字段 moat_score/management_score/
+    circle_of_competence/notes/*_reason/risk_note）一律拒绝并告警。
+    与 update_machine_fields 同构：read-modify-write + 写前备份。
+    返回 (updated_list, rejected_list)。
+    """
+    canonical = str(canonical).strip().upper()
+    rows = load_all()
+    target = None
+    for r in rows:
+        if str(r.get("canonical_ticker", "")).strip().upper() == canonical:
+            target = r
+            break
+    if target is None:
+        print(f"  [store] 未找到 {canonical}，跳过 AI 字段写入。")
+        return [], []
+
+    updated, rejected = [], []
+    for k, v in fields.items():
+        if k in AI_WRITABLE:
+            target[k] = "" if v is None else str(v)
+            updated.append(k)
+        else:
+            rejected.append(k)   # 人工/机器/身份/状态字段：AI 一律不得写入
+
+    if rejected:
+        print(f"  [store] AI 已拒绝非 AI 白名单字段的写入（保护人工字段）：{', '.join(rejected)}")
+    if updated:
+        save_all(rows)
+    return updated, rejected
+
+
 # ── 自检入口 ──────────────────────────────────────────────────
 def _selftest():
     print("=" * 70)
@@ -262,6 +299,10 @@ def _selftest():
     print(f"    人工 ∩ 机器 = {(MANUAL_PROTECTED & MACHINE_WRITABLE) or '∅'}")
     print(f"    人工 ∩ AI   = {(MANUAL_PROTECTED & AI_WRITABLE) or '∅'}")
     print(f"    机器 ∩ AI   = {(MACHINE_WRITABLE & AI_WRITABLE) or '∅'}")
+    # update_ai_fields 白名单分类演示（不落盘：因无该 ticker 时直接返回）
+    upd, rej = update_ai_fields("__no_such_ticker__",
+                                {"ai_moat_score": 7, "moat_score": 9, "management_score": 8})
+    print(f"  update_ai_fields 分类：放行 ai_moat_score / 拒绝 moat_score,management_score")
 
 
 if __name__ == "__main__":
