@@ -780,9 +780,10 @@ def main():
         result["missing_fields"] = "、".join(quant_labels(_missing)) if _missing else "（无）"
         result["data_status"]    = "待补录" if _missing else "完整"
         # v2.2.0-alpha2：市场/币种/补录状态（供待补录展示模式使用）
-        result["market"]        = row.get("market", "")
-        result["currency"]      = row.get("currency", "")
-        result["review_status"] = row.get("review_status", "")
+        result["market"]           = row.get("market", "")
+        result["currency"]         = row.get("currency", "")
+        result["review_status"]    = row.get("review_status", "")
+        result["canonical_ticker"] = row.get("canonical_ticker", "")
         # v2.3.0-alpha1：基础信息 + 风险短标签（供研究卡片展示）
         result["long_name"]     = row.get("long_name", "")
         result["sector"]        = row.get("sector", "")
@@ -868,6 +869,12 @@ def main():
         if matched:
             generate_ai_for(tk, stocks, results)   # v2.3.0-alpha2：生成 AI 暂定判断
             research_card.render(matched[0])
+            # v2.3.0-alpha3：研究卡片落盘 research_notes/<canonical>_card.md
+            try:
+                path = research_card.save_card(matched[0])
+                print(f"\n  研究卡片已保存：{path}")
+            except Exception as e:
+                print(f"\n  ⚠ 研究卡片保存失败（{e}），不影响终端输出。")
         else:
             print(f"\n  未找到 '{tk}'，可用代码：{', '.join(r['ticker'] for r in results)}")
     else:

@@ -14,11 +14,16 @@
 # ============================================================
 
 import sys
+from datetime import datetime
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 _W = 70
+
+
+def _now():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _uf(val):
@@ -74,20 +79,61 @@ def _qual_evaluated(result):
     return ms > 0 or bool(str(result.get("moat_reason", "")).strip())
 
 
-def _priority(machine_total, pending):
-    if pending:
-        return "数据不足，暂不排序"
-    if machine_total >= 60:
-        tier = "高"
-    elif machine_total >= 45:
-        tier = "中"
-    else:
-        tier = "低"
-    return f"{tier}（仅基于客观财务，未含质化，非买卖建议）"
+# 重大风险标记：出现则不给"高（待人工复核）"
+_MAJOR_RISK = ("高杠杆", "盈利能力弱", "趋势恶化")
 
 
-def render(result):
-    """打印一张研究卡片。"""
+def _has_major_risk(result):
+    flags = str(result.get("ai_risk_flags", "") or "")
+    return any(m in flags for m in _MAJOR_RISK)
+
+
+def _ai_generated(result):
+    return bool(str(result.get("ai_model", "")).strip())
+
+
+def research_priority(result):
+    """
+    合成研究优先级（仅研究排序，非买卖建议）。返回 (档位, 理由)。
+    人工字段优先；AI 可发现"高（待人工复核）"但必须醒目标注非人工确认。
+    """
+    # 1) 数据不足门槛（A股骨架/关键字段缺失）→ 不参与排序
+    if _pending(result):
+        return ("数据不足，待补录",
+                "关键财务字段缺失或为 A股骨架，暂不参与高/中/低排序；非买卖建议。")
+
+    # 2) 超出能力圈（人工字段）→ 即使机器分高也提示谨慎
+    if str(result.get("circle_of_competence", "")).strip().lower() == "outside":
+        return ("超出能力圈",
+                "circle_of_competence=outside：即使机器分高也需谨慎，建议暂不深入；非买卖建议。")
+
+    mt    = _machine_total(result)
+    human = _qual_evaluated(result)
+    tier  = "high" if mt >= 60 else "mid" if mt >= 45 else "low"
+
+    if tier == "high":
+        if human:
+            # 人工已补录：人工质化是否支持高优先级
+            if _f(result, "moat_score") >= 12:
+                return ("高研究优先级（人工确认）",
+                        f"机器财务分高({mt:.0f}/75)，且人工护城河/管理层已补录并支持；非买卖建议。")
+            return ("中研究优先级",
+                    f"机器财务分高({mt:.0f}/75)，但人工质化偏弱，降级为中；非买卖建议。")
+        # 人工未确认：AI 可发现高候选，但必须标注待人工复核
+        if _ai_generated(result) and not _has_major_risk(result):
+            return ("高研究优先级（待人工复核）",
+                    f"机器财务分高({mt:.0f}/75)、数据完整、AI 暂定无重大风险提示。"
+                    "★ AI 暂定，非人工确认，不能作为投资建议；请人工复核护城河/管理层/能力圈 ★")
+        return ("中研究优先级",
+                f"机器财务分高({mt:.0f}/75)，但 AI 暂定存在风险提示或质化尚未确认；非买卖建议。")
+
+    if tier == "mid":
+        return ("中研究优先级", f"机器财务分中等({mt:.0f}/75)；非买卖建议。")
+    return ("低研究优先级", f"机器财务分偏弱({mt:.0f}/75)，暂不优先深入；非买卖建议。")
+
+
+def _build_lines(result):
+    """构建研究卡片的所有文本行（list[str]），供打印与落盘共用。"""
     code     = result.get("ticker", "?")
     name     = result.get("long_name") or result.get("name") or code
     market   = result.get("market", "")
@@ -95,77 +141,81 @@ def render(result):
     sector   = result.get("sector", "")
     industry = result.get("industry", "")
     pending  = _pending(result)
+    L = []
+    def out(s=""): L.append(s)
 
-    print("\n" + "=" * _W)
-    print(f"  研究卡片 · {code} · {_uf(name)}    [{_market_label(market)} / {_uf(currency)}]")
-    print(f"  板块: {_uf(sector)}   行业: {_uf(industry)}   "
-          f"数据日期: {_uf(result.get('data_date'))}")
-    print("─" * _W)
+    out("=" * _W)
+    out(f"  研究卡片 · {code} · {_uf(name)}    [{_market_label(market)} / {_uf(currency)}]")
+    out(f"  板块: {_uf(sector)}   行业: {_uf(industry)}   "
+        f"数据日期: {_uf(result.get('data_date'))}")
+    out("─" * _W)
 
     # ── 数据完整度 ──────────────────────────────────────────────
     fin_state  = "·数据不足" if pending else "✓完整"
+    ai_state   = "✓已生成" if _ai_generated(result) else "·未生成"
     qual_state = "✓人工已评" if _qual_evaluated(result) else "·待补录"
-    print(f"  数据完整度:  机器财务 {fin_state}   |  AI质化 ·未生成   |  人工 {qual_state}")
-    print("─" * _W)
+    out(f"  数据完整度:  机器财务 {fin_state}   |  AI质化 {ai_state}   |  人工 {qual_state}")
+    out("─" * _W)
 
     # ── 机器财务评分（客观，75）─────────────────────────────────
     mt = _machine_total(result)
-    print("  【机器财务评分（客观，满分75）】", end="")
     if pending:
-        print("      数据不足（待补录）")
-        print("    缺失关键财务字段，暂不展示分项与结论。")
+        out("  【机器财务评分（客观，满分75）】      数据不足（待补录）")
+        out("    缺失关键财务字段，暂不展示分项与结论。")
     else:
-        print(f"      {mt:.1f} / {_MACHINE_MAX}")
+        out(f"  【机器财务评分（客观，满分75）】      {mt:.1f} / {_MACHINE_MAX}")
         for label, key, mx in _MACHINE_DIMS:
             sc = _f(result, key)
-            print(f"    {label} [{_bar(sc, mx)}] {sc:.0f}/{mx}")
-    print("─" * _W)
+            out(f"    {label} [{_bar(sc, mx)}] {sc:.0f}/{mx}")
+    out("─" * _W)
 
     # ── 质化评分（人工权威 / AI暂定，与机器分分开）──────────────
     human   = _qual_evaluated(result)
-    ai_on   = bool(str(result.get("ai_model", "")).strip())
+    ai_on   = _ai_generated(result)
     ai_moat = str(result.get("ai_moat_score", "")).strip()
     ai_mgmt = str(result.get("ai_management_score", "")).strip()
     ai_conf = str(result.get("ai_confidence", "")).strip() or "—"
 
-    print("  【质化评分（人工权威 / AI暂定，与机器分分开）】")
+    out("  【质化评分（人工权威 / AI暂定，与机器分分开）】")
     if human:
         moat = _f(result, "moat_score")
         mgmt = _f(result, "management_score")
         ref_m = f"（参考 AI暂定 {ai_moat}/10）" if ai_moat else ""
         ref_g = f"（参考 AI暂定 {ai_mgmt}/10）" if ai_mgmt else ""
-        print(f"    护城河   人工: {moat:.0f}/20  {ref_m}")
-        print(f"    管理层   人工: {mgmt:.0f}/5   {ref_g}")
-        print(f"    风险标记 人工: {_uf(result.get('risk_note'))}")
-        print(f"    → 人工已确认（权威）；AI 仅作旁边参考")
+        out(f"    护城河   人工: {moat:.0f}/20  {ref_m}")
+        out(f"    管理层   人工: {mgmt:.0f}/5   {ref_g}")
+        out(f"    风险标记 人工: {_uf(result.get('risk_note'))}")
+        out(f"    → 人工已确认（权威）；AI 仅作旁边参考")
     elif ai_moat or ai_mgmt:
-        print(f"    护城河   人工: 未评估   AI暂定: {ai_moat or '—'}/10"
-              f"（置信度 {ai_conf}，AI暂定·非人工确认·待证实）")
-        print(f"    管理层   人工: 未评估   AI暂定: {ai_mgmt or '—'}/10"
-              f"（置信度 {ai_conf}，AI暂定·非人工确认·需读年报）")
-        print(f"    风险标记 人工: 未填写   AI暂定: {_uf(result.get('ai_risk_flags'))}")
-        print(f"    → needs_human_review: true（AI 暂定，需人工复核）")
+        out(f"    护城河   人工: 未评估   AI暂定: {ai_moat or '—'}/10"
+            f"（置信度 {ai_conf}，AI暂定·非人工确认·待证实）")
+        out(f"    管理层   人工: 未评估   AI暂定: {ai_mgmt or '—'}/10"
+            f"（置信度 {ai_conf}，AI暂定·非人工确认·需读年报）")
+        out(f"    风险标记 人工: 未填写   AI暂定: {_uf(result.get('ai_risk_flags'))}")
+        out(f"    → needs_human_review: true（AI 暂定，需人工复核）")
     else:
-        print("    护城河   人工: 未评估   AI暂定: 数据不足，未生成（需人工复核）   /10")
-        print("    管理层   人工: 未评估   AI暂定: 数据不足，未生成（需人工复核）   /10")
-        print("    风险标记 人工: 未填写")
-        print("    → needs_human_review: true")
-    print("─" * _W)
+        out("    护城河   人工: 未评估   AI暂定: 数据不足，未生成（需人工复核）   /10")
+        out("    管理层   人工: 未评估   AI暂定: 数据不足，未生成（需人工复核）   /10")
+        out("    风险标记 人工: 未填写")
+        out("    → needs_human_review: true")
+    out("─" * _W)
 
     # ── AI 初步质化判断详情（AI 暂定，非人工确认）───────────────
-    print("  【AI 初步质化判断（AI 暂定，非人工确认）】")
+    out("  【AI 初步质化判断（AI 暂定，非人工确认）】")
     if ai_on:
-        print(f"    模型: {_uf(result.get('ai_model'))}   置信度: {ai_conf}"
-              f"   生成: {_uf(result.get('ai_generated_at'))}")
-        print(f"    判断: {_uf(result.get('ai_reason'))}")
-        print(f"    待补证据: {_uf(result.get('ai_evidence_needed'))}")
-        print("    （以上为 AI 暂定、非人工确认，需人工复核；不构成投资建议）")
+        out(f"    模型: {_uf(result.get('ai_model'))}   置信度: {ai_conf}"
+            f"   生成: {_uf(result.get('ai_generated_at'))}")
+        out(f"    判断: {_uf(result.get('ai_reason'))}")
+        out(f"    待补证据: {_uf(result.get('ai_evidence_needed'))}")
+        out("    （以上为 AI 暂定、非人工确认，需人工复核；不构成投资建议）")
     else:
-        print("    未生成（运行 python main.py <代码> 触发；数据不足时不生成）")
-    print("─" * _W)
+        out("    未生成（运行 python main.py <代码> 触发；数据不足时不生成）")
+    out("─" * _W)
 
-    # ── 研究优先级（非买卖建议）─────────────────────────────────
-    print(f"  【研究优先级】{_priority(mt, pending)}")
+    # ── 研究优先级（合成；非买卖建议）───────────────────────────
+    prio, why = research_priority(result)
+    out(f"  【研究优先级】{prio}")
+    out(f"    {why}")
 
     # ── 缺失与下一步 ────────────────────────────────────────────
     steps = []
@@ -180,14 +230,54 @@ def render(result):
     if not _qual_evaluated(result):
         steps.append("补录护城河/管理层/能力圈： python manual_review_helper.py --template")
     if steps:
-        print("  【缺失与下一步】")
+        out("  【缺失与下一步】")
         for s in steps:
-            print(f"    · {s}")
+            out(f"    · {s}")
 
     # ── 免责声明 ────────────────────────────────────────────────
-    print("─" * _W)
-    print("  仅为研究辅助与优先级排序，不构成任何买入/卖出/持有建议。")
-    print("=" * _W)
+    out("─" * _W)
+    out("  仅为研究辅助与优先级排序，不构成任何买入/卖出/持有建议。")
+    out("=" * _W)
+    return L
+
+
+def render(result):
+    """打印一张研究卡片。"""
+    print()
+    print("\n".join(_build_lines(result)))
+
+
+def save_card(result, notes_dir=None):
+    """
+    将研究卡片保存为 research_notes/<canonical>_card.md（markdown，正文置于代码块以保留对齐）。
+    返回保存路径。仅保存机器/AI/展示信息，不写任何人工字段、不改 stocks.csv。
+    """
+    import os
+    base = os.path.dirname(os.path.abspath(__file__))
+    notes_dir = notes_dir or os.path.join(base, "research_notes")
+    os.makedirs(notes_dir, exist_ok=True)
+
+    canonical = str(result.get("canonical_ticker") or result.get("ticker") or "UNKNOWN").strip()
+    safe = canonical.replace("/", "_").replace("\\", "_")   # 文件名安全
+    path = os.path.join(notes_dir, f"{safe}_card.md")
+
+    prio, _ = research_priority(result)
+    name = result.get("long_name") or result.get("name") or canonical
+    md = []
+    md.append(f"# 研究卡片 · {canonical} · {name}")
+    md.append("")
+    md.append(f"- 研究优先级：**{prio}**（仅研究排序，非买卖建议）")
+    md.append(f"- 生成时间：{_now()}")
+    md.append("- 说明：本卡片含机器财务分与 AI 暂定判断；AI 暂定·非人工确认，需人工复核。")
+    md.append("")
+    md.append("```text")
+    md.extend(_build_lines(result))
+    md.append("```")
+    md.append("")
+    md.append("> 仅为研究辅助，不构成任何买入/卖出/持有建议。")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(md) + "\n")
+    return path
 
 
 # ── 自检入口（假数据，不联网）────────────────────────────────

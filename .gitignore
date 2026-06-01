@@ -14,3 +14,7 @@ data/*_backup_*.csv
 .claude/settings.local.json
 output/*.csv
 output/*.xlsx
+
+# v2.3.0-alpha3：自动生成的研究卡片（保留目录与手写 *_report.txt）
+research_notes/*_card.md
+!research_notes/.gitkeep
