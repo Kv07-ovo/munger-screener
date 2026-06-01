@@ -11,3 +11,6 @@ output/*
 
 # 数据备份文件（保留 stocks.csv 和 annual_financials.csv 本体）
 data/*_backup_*.csv
+.claude/settings.local.json
+output/*.csv
+output/*.xlsx

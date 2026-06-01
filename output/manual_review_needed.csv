@@ -1,2 +1,0 @@
-ticker,company,missing_fields,missing_count,suggested_action,reason
-GME,游戏驿站,fcf_yield,1,运行 python fetcher.py --valuation <ticker> 获取估值,以下字段为空属于待补录数据，不代表公司质量差：自由现金流收益率；补齐后重新运行 python main.py 即可正常评分。

@@ -24,6 +24,37 @@
 
 ---
 
+## 按需查询任意股票（v2.2.0-alpha1）
+
+除了批量评分 watchlist，现在可以**直接查询任意股票代码**——本地没有就自动建档：
+
+```bash
+python main.py AAPL          # 美股：本地有则直接分析
+python main.py ORCL          # 美股：本地无 → 建骨架 + 自动抓取财务（yfinance）
+python main.py 600519        # A股：自动规范化为 600519.SH
+python main.py 600519.SH     # 上交所
+python main.py 000001.SZ     # 深交所
+```
+
+行为：
+- **识别市场并规范化**：`AAPL`/`BRK-B`（美股）、`600519`/`600519.SH`/`000001.SZ`（A股）；
+  `600519`、`600519.SH`、`600519.SS` 都归一为 `600519.SH`，不会产生重复行。
+- **美股**：本地无 → 建骨架 → 自动抓年度财务（写 `annual_financials.csv`）+ 估值 `pe`/`fcf_yield`。
+- **A股（第一阶段）**：本地无 → 仅建骨架，`market=CN`、`currency=CNY`、`review_status=pending_manual_review`，
+  **暂不自动抓取财务**（后续阶段支持），数据不足时显示「数据不足（待补录）」而非误判为差公司。
+- **无参数 `python main.py` 仍是原批量评分模式，行为完全不变。**
+
+### 数据写入与人工字段保护
+- 所有对 `stocks.csv` 的自动写入都经过 `store.py` 的**白名单**：只写机器字段（财务/估值/市场基础信息），
+  `moat_score`、`management_score`、`circle_of_competence`、各 `reason`、`risk_note` 等**人工判断字段永不被自动覆盖**，
+  建骨架时一律留空、标记待人工补录。每次写入前自动备份 `data/stocks_backup_*.csv`。
+- 新增列 `market` / `currency` / `canonical_ticker` / `review_status` 追加在末尾，**向后兼容**；
+  旧 `stocks.csv` 无需手工迁移，运行时自动补全。
+
+> 数据访问层 `store.py` 为将来迁移到 SQLite 预留了统一接口；v2.2.0 仍使用 CSV。
+
+---
+
 ## 文件结构
 
 ```
@@ -37,10 +68,13 @@ munger_screener/
 │   ├── manual_review_needed.csv  # 人工字段缺失报告
 │   ├── manual_fill_template.csv  # 人工补录模板（CSV 格式）
 │   └── manual_fill_template.xlsx # 人工补录模板（Excel 格式，推荐）
-├── add_stocks.py         # 向 stocks.csv 添加新股票框架
+├── ticker_resolver.py    # v2.2.0：识别市场(US/CN)+规范化代码
+├── store.py              # v2.2.0：CSV 数据访问层 + 人工字段白名单保护
+├── add_stocks.py         # 向 stocks.csv 添加新股票框架（委托 store）
 ├── fetcher.py            # 自动抓取年度财务数据（yfinance）
 ├── manual_review_helper.py # 人工字段缺失检查 + Excel 模板生成/导入
-├── main.py               # 主评分程序
+├── preflight.py          # 运行前自检（依赖/目录/文件/列）
+├── main.py               # 主评分程序 + 按需查询
 ├── scorer.py             # 评分引擎（各维度打分逻辑）
 ├── validator.py          # 数据校验 + 最终决策逻辑
 └── financial_analyzer.py # 年度财务数据计算（5年均值/趋势）

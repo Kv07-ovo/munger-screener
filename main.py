@@ -24,6 +24,8 @@ except ImportError:
     sys.exit(1)
 
 from preflight          import run_preflight, print_report   # v2.1.0
+import store                                                  # v2.2.0-alpha1
+from ticker_resolver     import resolve, UNKNOWN              # v2.2.0-alpha1
 from scorer             import score_stock, generate_narrative
 from validator          import (validate_data, get_final_decision, filter_fin_warning,
                                  missing_key_quant_fields, quant_labels)
@@ -55,6 +57,11 @@ _DEFAULTS = {
     "_fin_source":       "",
     "_fin_updated_at":   "",
     "industry_size":     "1",
+    # v2.2.0-alpha1：市场/币种/规范化代码/补录状态（向后兼容，旧 CSV 缺则补）
+    "market":            "",
+    "currency":          "",
+    "canonical_ticker":  "",
+    "review_status":     "",
 }
 
 # ── v1.8：可被年度财务数据自动覆盖的字段（只有这些）──────────
@@ -228,6 +235,17 @@ def load_stocks(filepath):
             df[col] = default
     df = df.fillna("")
     stocks = df.to_dict(orient="records")
+    # v2.2.0-alpha1：为缺失的 canonical/market/currency 用 resolver 回填
+    # （机器可派生的基础信息，非人工判断；只读内存，不改写文件）
+    for row in stocks:
+        if not str(row.get("canonical_ticker", "")).strip():
+            r = resolve(str(row.get("ticker", "")))
+            if r.market != UNKNOWN:
+                row["canonical_ticker"] = r.canonical
+                if not str(row.get("market", "")).strip():
+                    row["market"] = r.market
+                if not str(row.get("currency", "")).strip():
+                    row["currency"] = r.currency
     print(f"已读取 {len(stocks)} 只股票（{filepath}）")
     return stocks
 
@@ -500,6 +518,70 @@ def lookup_ticker(ticker, all_results):
 
 
 # ============================================================
+# v2.2.0-alpha1：按需查询——确保代码在本地存在（必要时建骨架/抓取）
+# ============================================================
+
+def ensure_local(raw_ticker):
+    """
+    识别并规范化代码，确保其在本地 stocks.csv 中存在。
+    返回 canonical（成功）或 None（无法识别）。
+
+    - 已存在：直接返回。
+    - 美股不存在：建骨架 → 抓年度财务（annual_financials.csv）
+                  → 估值 pe/fcf_yield 经 store 白名单写回。
+    - A股不存在：仅建骨架（market=CN/currency=CNY，标记待人工补录），不抓取。
+
+    所有 stocks.csv 写入都经过 store（白名单保护人工字段）。
+    抓取失败不致命：骨架保留，缺数据走"数据不足（待补录）"。
+    """
+    r = resolve(raw_ticker)
+    if r.market == UNKNOWN or not r.canonical:
+        print(f"\n  无法识别代码 '{raw_ticker}'。")
+        print("  支持格式：美股 AAPL / BRK-B；A股 600519 / 600519.SH / 000001.SZ")
+        return None
+
+    if store.exists(r.canonical):
+        print(f"  本地已有 {r.canonical}（{r.market}），直接分析。")
+        return r.canonical
+
+    print(f"\n  本地无 {r.canonical}，创建骨架"
+          f"（market={r.market} currency={r.currency}，人工字段留空待补录）...")
+    store.upsert_skeleton(r)
+
+    if r.market == "US" and r.autofetch_supported:
+        try:
+            import fetcher
+        except Exception as e:
+            print(f"  ⚠ 无法加载 fetcher（{e}），保留骨架，跳过自动抓取。")
+            return r.canonical
+        if not getattr(fetcher, "_HAS_YF", False):
+            print("  ⚠ 未安装 yfinance，保留骨架，跳过自动抓取（pip install yfinance）。")
+            return r.canonical
+        # 1) 年度财务 → annual_financials.csv（机器专用文件）
+        print(f"  正在抓取 {r.provider_symbol} 年度财务数据...")
+        try:
+            fetcher.fetch_and_update([r.provider_symbol])
+        except Exception as e:
+            print(f"  ⚠ 年度财务抓取失败（{e}），保留骨架，可稍后重试。")
+        # 2) 估值 pe/fcf_yield → 经 store 白名单写回 stocks.csv
+        try:
+            val    = fetcher.fetch_valuation_yf(r.provider_symbol)
+            fields = {}
+            if val.get("pe")        is not None: fields["pe"]        = val["pe"]
+            if val.get("fcf_yield") is not None: fields["fcf_yield"] = val["fcf_yield"]
+            if fields:
+                store.update_machine_fields(r.canonical, fields)
+                print(f"  估值已写入（经 store 白名单）：{fields}")
+        except Exception as e:
+            print(f"  ⚠ 估值抓取失败（{e}），可稍后运行 fetcher.py --valuation。")
+    else:
+        print("  A股第一阶段仅建骨架、不自动抓取财务；请人工补录或待后续阶段支持。")
+        print("  （数据不足将显示『数据不足（待补录）』，不会被误判为差公司。）")
+
+    return r.canonical
+
+
+# ============================================================
 # 主程序
 # ============================================================
 
@@ -519,6 +601,16 @@ def main():
     if not ok:
         print("  自检未通过，已停止运行。请按上面的方案处理后重试。\n")
         return
+
+    # ── 步骤 0.5：查询模式（v2.2.0-alpha1）─────────────────────
+    # 有参数时先确保该代码在本地存在（必要时建骨架+抓取），再走批量管道。
+    # 无参数时为原批量评分模式，行为完全不变。
+    query_canonical = None
+    if len(sys.argv) > 1:
+        query_canonical = ensure_local(sys.argv[1])
+        if query_canonical is None:
+            return
+        print()
 
     # ── 步骤 1：读取 stocks.csv（人工判断字段）─────────────────
     stocks = load_stocks(INPUT_PATH)
@@ -620,7 +712,7 @@ def main():
 
     # ── 步骤 11：单股查询 ─────────────────────────────────────────
     if len(sys.argv) > 1:
-        lookup_ticker(sys.argv[1], results)
+        lookup_ticker(query_canonical or sys.argv[1], results)
     else:
         print("─" * 70)
         print("  输入股票代码查看深度分析，直接回车退出")
