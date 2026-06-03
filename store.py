@@ -56,7 +56,13 @@ _V230_AI_COLUMNS = [
 ]
 # v2.4.0 新增列：A股/通用估值（机器写入，PB 与市值）
 _V240_COLUMNS = ["pb", "market_cap"]
-NEW_COLUMNS = _V220_COLUMNS + _V230_PROFILE_COLUMNS + _V230_AI_COLUMNS + _V240_COLUMNS
+# v2.4.2 新增列：
+#   data_rev —— A股数据口径版本标记（机器写入，用于识别旧数据需刷新）
+#   notes    —— 纯人工备注字段（受保护，机器/AI 都不可写）
+_V242_MACHINE_COLUMNS = ["data_rev"]
+_V242_MANUAL_COLUMNS  = ["notes"]
+NEW_COLUMNS = (_V220_COLUMNS + _V230_PROFILE_COLUMNS + _V230_AI_COLUMNS
+               + _V240_COLUMNS + _V242_MACHINE_COLUMNS + _V242_MANUAL_COLUMNS)
 ALL_COLUMNS = BASE_COLUMNS + NEW_COLUMNS
 
 # ── 字段分类：白名单是「人工字段不被覆盖」的核心保障 ─────────────
@@ -66,6 +72,7 @@ MANUAL_PROTECTED = {
     "brand_score", "switching_cost_score", "network_effect_score",
     "scale_advantage_score", "pricing_power_score", "moat_durability_score",
     "moat_reason", "management_reason", "risk_note", "risk_reason", "debt_reason",
+    "notes",   # v2.4.2：纯人工备注，机器/AI 不可写
 }
 # AI 质化层：仅 ai_analysis 可写（alpha2 起）；不得写入人工/机器/身份字段
 AI_WRITABLE = set(_V230_AI_COLUMNS)
@@ -296,15 +303,33 @@ def _selftest():
           f"{', '.join(sorted(AI_WRITABLE))}")
     print(f"  MANUAL_PROTECTED（{len(MANUAL_PROTECTED)}，机器+AI 永不触碰）："
           f"{', '.join(sorted(MANUAL_PROTECTED))}")
-    # 三类白名单必须互不相交
+    # 三类白名单必须互不相交（硬断言）
     print("  互斥自检：")
-    print(f"    人工 ∩ 机器 = {(MANUAL_PROTECTED & MACHINE_WRITABLE) or '∅'}")
-    print(f"    人工 ∩ AI   = {(MANUAL_PROTECTED & AI_WRITABLE) or '∅'}")
-    print(f"    机器 ∩ AI   = {(MACHINE_WRITABLE & AI_WRITABLE) or '∅'}")
-    # update_ai_fields 白名单分类演示（不落盘：因无该 ticker 时直接返回）
-    upd, rej = update_ai_fields("__no_such_ticker__",
-                                {"ai_moat_score": 7, "moat_score": 9, "management_score": 8})
-    print(f"  update_ai_fields 分类：放行 ai_moat_score / 拒绝 moat_score,management_score")
+    checks = [
+        ("人工 ∩ 机器 = ∅", not (MANUAL_PROTECTED & MACHINE_WRITABLE)),
+        ("人工 ∩ AI   = ∅", not (MANUAL_PROTECTED & AI_WRITABLE)),
+        ("机器 ∩ AI   = ∅", not (MACHINE_WRITABLE & AI_WRITABLE)),
+        # v2.4.2：notes 纯人工
+        ("notes ∈ MANUAL_PROTECTED",  "notes" in MANUAL_PROTECTED),
+        ("notes ∉ MACHINE_WRITABLE",  "notes" not in MACHINE_WRITABLE),
+        ("notes ∉ AI_WRITABLE",       "notes" not in AI_WRITABLE),
+        # v2.4.2：data_rev 仅机器
+        ("data_rev ∈ MACHINE_WRITABLE", "data_rev" in MACHINE_WRITABLE),
+        ("data_rev ∉ MANUAL_PROTECTED", "data_rev" not in MANUAL_PROTECTED),
+        ("data_rev ∉ AI_WRITABLE",      "data_rev" not in AI_WRITABLE),
+    ]
+    all_ok = True
+    for label, ok in checks:
+        print(f"    [{'PASS' if ok else 'FAIL'}] {label}")
+        all_ok = all_ok and ok
+    print(f"  白名单自检：{'全部通过' if all_ok else '存在 FAIL，请检查！'}")
+
+    # 白名单分类演示（纯判定，无 I/O、不写文件）
+    sample = {"data_rev": 1, "pe": 20, "notes": "x", "moat_score": 9, "ai_moat_score": 7}
+    machine_rej = sorted(k for k in sample if k not in MACHINE_WRITABLE)
+    ai_rej      = sorted(k for k in sample if k not in AI_WRITABLE)
+    print(f"  机器写入将拒绝（非 MACHINE_WRITABLE，应含 notes/moat_score/ai_moat_score）：{machine_rej}")
+    print(f"  AI 写入将拒绝（非 AI_WRITABLE，应含 notes/moat_score/data_rev/pe）：{ai_rej}")
 
 
 if __name__ == "__main__":

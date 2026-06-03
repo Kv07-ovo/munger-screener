@@ -38,9 +38,18 @@ def _market_label(market):
 
 
 def _pending(result):
-    """数据不足（待补录）→ 不展示质量结论。"""
-    return (str(result.get("final_decision", "")) == "数据不足（待补录）"
-            or str(result.get("data_status", "")) == "待补录")
+    """
+    数据严重不足（待补录）→ 不展示质量结论。
+    v2.4.1：只看 final_decision（即 ≥2 关键字段缺失等"真不足"）；
+    仅 1 项缺失（如仅 ROIC）不算 pending → 显示"部分机器财务分"，
+    但 research_priority 会因 data_status=待补录 而封顶"中（数据不完整）"。
+    """
+    return str(result.get("final_decision", "")) == "数据不足（待补录）"
+
+
+def _incomplete(result):
+    """关键量化字段有缺失（≥1 项），但未到"数据严重不足"。"""
+    return str(result.get("data_status", "")) == "待补录"
 
 
 def _f(result, key, default=0.0):
@@ -107,19 +116,23 @@ def research_priority(result):
         return ("超出能力圈",
                 "circle_of_competence=outside：即使机器分高也需谨慎，建议暂不深入；非买卖建议。")
 
-    mt    = _machine_total(result)
-    human = _qual_evaluated(result)
-    tier  = "high" if mt >= 60 else "mid" if mt >= 45 else "low"
+    mt         = _machine_total(result)
+    human      = _qual_evaluated(result)
+    incomplete = _incomplete(result)      # 关键字段缺失（如 A股缺 ROIC）
+    tier       = "high" if mt >= 60 else "mid" if mt >= 45 else "low"
 
     if tier == "high":
+        # v2.4.1：数据不完整（缺 ROIC/FCF 等）→ 最高只能"中研究优先级（数据不完整）"
+        if incomplete:
+            return ("中研究优先级（数据不完整）",
+                    f"机器财务分高({mt:.0f}/75)，但关键字段缺失（如 ROIC），"
+                    "封顶为中；缺失≠公司差，补齐后可复评；非买卖建议。")
         if human:
-            # 人工已补录：人工质化是否支持高优先级
             if _f(result, "moat_score") >= 12:
                 return ("高研究优先级（人工确认）",
                         f"机器财务分高({mt:.0f}/75)，且人工护城河/管理层已补录并支持；非买卖建议。")
             return ("中研究优先级",
                     f"机器财务分高({mt:.0f}/75)，但人工质化偏弱，降级为中；非买卖建议。")
-        # 人工未确认：AI 可发现高候选，但必须标注待人工复核
         if _ai_generated(result) and not _has_major_risk(result):
             return ("高研究优先级（待人工复核）",
                     f"机器财务分高({mt:.0f}/75)、数据完整、AI 暂定无重大风险提示。"
@@ -128,7 +141,8 @@ def research_priority(result):
                 f"机器财务分高({mt:.0f}/75)，但 AI 暂定存在风险提示或质化尚未确认；非买卖建议。")
 
     if tier == "mid":
-        return ("中研究优先级", f"机器财务分中等({mt:.0f}/75)；非买卖建议。")
+        suffix = "（数据不完整）" if incomplete else ""
+        return (f"中研究优先级{suffix}", f"机器财务分中等({mt:.0f}/75)；非买卖建议。")
     return ("低研究优先级", f"机器财务分偏弱({mt:.0f}/75)，暂不优先深入；非买卖建议。")
 
 
@@ -160,7 +174,8 @@ def _build_lines(result):
     out("─" * _W)
 
     # ── 数据完整度 ──────────────────────────────────────────────
-    fin_state  = "·数据不足" if pending else "✓完整"
+    incomplete = _incomplete(result)
+    fin_state  = "·数据不足" if pending else ("◐部分(缺ROIC等)" if incomplete else "✓完整")
     ai_state   = "✓已生成" if _ai_generated(result) else "·未生成"
     qual_state = "✓人工已评" if _qual_evaluated(result) else "·待补录"
     out(f"  数据完整度:  机器财务 {fin_state}   |  AI质化 {ai_state}   |  人工 {qual_state}")
@@ -172,7 +187,8 @@ def _build_lines(result):
         out("  【机器财务评分（客观，满分75）】      数据不足（待补录）")
         out("    缺失关键财务字段，暂不展示分项与结论。")
     else:
-        out(f"  【机器财务评分（客观，满分75）】      {mt:.1f} / {_MACHINE_MAX}")
+        tag = "（部分机器财务分：部分关键字段缺失）" if incomplete else ""
+        out(f"  【机器财务评分（客观，满分75）】      {mt:.1f} / {_MACHINE_MAX} {tag}")
         for label, key, mx in _MACHINE_DIMS:
             sc = _f(result, key)
             out(f"    {label} [{_bar(sc, mx)}] {sc:.0f}/{mx}")

@@ -27,6 +27,9 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 SOURCE = "AKShare"
+# A股数据口径版本：每次扩展/调整 A股字段抓取口径时 +1。
+# stocks.csv 的 data_rev 低于此值（或空/非数字）视为旧数据，需重新抓取。
+ASHARE_DATA_REV = 1
 # 金融类行业关键词：不套用普通企业 D/E / FCF / 毛利率
 _FINANCIAL_KW = ("银行", "保险", "证券", "券商", "资本市场", "信托")
 
@@ -112,44 +115,68 @@ def _row_value(df, metric_col, date_col, *keywords):
 def parse_abstract(df, canonical, is_financial, today=None):
     """
     纯解析（可离线单测）：把 stock_financial_abstract 宽表解析成 annual_financials 行。
-    拿不到的字段留空（roic/free_cash_flow 一律留空；金融类 D/E 留空）。
+    v2.4.1 补算（仅用真实 AKShare 字段，不伪造）：
+      - debt_to_equity = 资产负债率/(1-资产负债率)（仅非金融；金融类留空）
+      - free_cash_flow = 每股企业自由现金流量 × 推算股本(经营现金流净额/每股经营现金流)
+                         （AKShare 已给的企业自由现金流≈OCF-资本支出；仅非金融）
+      - ROIC：无可靠口径 → 一律留空（不乱算）
+    任一字段不可靠则留空，并写入 data_warning。
     """
     today = today or date.today().isoformat()
     if df is None or len(df) == 0:
         return []
-    metric_col = _find_metric_col(df)
-    date_cols  = _annual_date_cols(df.columns)
+    mc = _find_metric_col(df)
+    date_cols = _annual_date_cols(df.columns)
     rows = []
     for dc in sorted(date_cols)[-5:]:        # 最近 5 个年报
         ys = str(dc).replace("-", "")[:4]
         if not ys.isdigit():
             continue
-        rev = _row_value(df, metric_col, dc, "营业总收入", "营业收入")
-        ni  = _row_value(df, metric_col, dc, "归母净利润", "净利润")
-        roe = _row_value(df, metric_col, dc, "净资产收益率", "ROE")
-        cost = _row_value(df, metric_col, dc, "营业成本")
+        rev    = _row_value(df, mc, dc, "营业总收入", "营业收入")
+        ni     = _row_value(df, mc, dc, "归母净利润", "净利润")
+        roe    = _row_value(df, mc, dc, "净资产收益率(ROE)", "净资产收益率")
+        cost   = _row_value(df, mc, dc, "营业成本")
+        ocf    = _row_value(df, mc, dc, "经营现金流量净额")
+        ocf_ps = _row_value(df, mc, dc, "每股经营现金流")
+        fcf_ps = _row_value(df, mc, dc, "每股企业自由现金流量")
+        dar    = _row_value(df, mc, dc, "资产负债率")
 
-        gm = ""
-        if rev and cost is not None and rev != 0:
-            gm = round((rev - cost) / rev * 100, 2)
-        nm = ""
-        if rev and ni is not None and rev != 0:
-            nm = round(ni / rev * 100, 2)
+        gm = round((rev - cost) / rev * 100, 2) if (rev and cost is not None and rev != 0) else ""
+        nm = round(ni / rev * 100, 2) if (rev and ni is not None and rev != 0) else ""
 
-        warns = ["ROIC缺失(AKShare无稳定口径)", "FCF缺失"]
+        warns = ["ROIC缺失(AKShare无稳定口径)"]
+
+        # ── debt_to_equity（非金融，从资产负债率换算）──────────
+        de = ""
         if is_financial:
             warns.append("金融类:D/E不适用")
+        elif dar is not None and 0 <= dar < 100:
+            de = round((dar / 100) / (1 - dar / 100), 3)
+        else:
+            warns.append("资产负债率缺失/异常,D/E留空")
+
+        # ── free_cash_flow（非金融，每股企业自由现金流量×推算股本）─
+        fcf = ""
+        if is_financial:
+            warns.append("金融类:FCF不适用")
+        else:
+            shares = (ocf / ocf_ps) if (ocf is not None and ocf_ps not in (None, 0)) else None
+            if fcf_ps is not None and shares and shares > 0:
+                fcf = round(fcf_ps * shares / 1e9, 3)   # 十亿
+            else:
+                warns.append("FCF不可靠,留空")
+
         rows.append({
             "ticker": canonical,
             "year": ys,
             "revenue":        "" if rev is None else round(rev / 1e9, 3),
             "net_income":     "" if ni  is None else round(ni / 1e9, 3),
-            "free_cash_flow": "",                      # AKShare 不稳定 → 留空
+            "free_cash_flow": fcf,
             "roe":            "" if roe is None else round(roe, 2),
             "roic":           "",                      # 无可靠口径 → 留空
             "gross_margin":   gm,
             "net_margin":     nm,
-            "debt_to_equity": "",                      # 金融类不适用/不稳定 → 留空
+            "debt_to_equity": de,
             "source": SOURCE,
             "updated_at": today,
             "data_warning": "; ".join(warns),
@@ -230,20 +257,41 @@ def fetch(canonical):
     else:
         res.warnings.append("估值函数 stock_zh_valuation_baidu 不可用")
 
-    # 3) 年度财务
+    # 行业判定（带 ticker 兜底：沙箱/网络受限时 AKShare 行业可能为空）
+    try:
+        from validator import effective_industry
+        eff_ind = effective_industry({"ticker": canonical, "industry": industry})
+    except Exception:
+        eff_ind = industry
+    is_fin = _is_financial(eff_ind)
+
+    # 3) 年度财务（补算 D/E、FCF）
     try:
         _abs_fn = getattr(ak, "stock_financial_abstract", None)
         abs_df  = _abs_fn(symbol=sym) if _abs_fn else None
-        res.annual_rows = parse_abstract(abs_df, canonical, _is_financial(industry))
+        res.annual_rows = parse_abstract(abs_df, canonical, is_fin)
     except Exception as e:
         res.warnings.append(f"年度财务抓取失败:{e}")
 
-    # 4) 缺失项（不造假）：roic/fcf 必缺；金融类 d/e 不适用
-    res.missing_fields = ["roic_5y_avg", "free_cash_flow/fcf_yield"]
-    if _is_financial(industry):
-        res.missing_fields.append("debt_to_equity(金融类不适用)")
-    else:
-        res.missing_fields.append("debt_to_equity")
+    # 4) fcf_yield = 最新年 FCF / market_cap（单位换算；仅非金融且两者可靠）
+    if not is_fin and res.annual_rows and res.valuation.get("market_cap"):
+        latest_fcf = res.annual_rows[-1].get("free_cash_flow", "")
+        mcap = res.valuation.get("market_cap")
+        if latest_fcf not in ("", None) and mcap:
+            try:
+                # FCF 十亿(1e9) / 市值 亿(1e8) → *10
+                res.valuation["fcf_yield"] = round(float(latest_fcf) * 10 / float(mcap), 4)
+            except (ValueError, ZeroDivisionError):
+                pass
+
+    # 5) 缺失项（据实，不造假）
+    has_de  = any(r.get("debt_to_equity")  not in ("", None) for r in res.annual_rows)
+    has_fcf = any(r.get("free_cash_flow")   not in ("", None) for r in res.annual_rows)
+    res.missing_fields = ["roic_5y_avg(无可靠口径)"]
+    if not has_de:
+        res.missing_fields.append("debt_to_equity" + ("(金融类不适用)" if is_fin else ""))
+    if not has_fcf:
+        res.missing_fields.append("free_cash_flow/fcf_yield" + ("(金融类不适用)" if is_fin else ""))
     if not res.annual_rows:
         res.missing_fields.append("annual_financials(年度财务未取到)")
 
@@ -280,11 +328,12 @@ def ingest(canonical, exchange=None):
     # 2) 基础信息 + 估值 → stocks.csv（经 store 白名单，绝不碰人工字段）
     try:
         import store
-        fields = {"data_source": SOURCE}   # 已从 AKShare 取得数据 → 标注来源
+        # 已从 AKShare 取得数据 → 标注来源 + 打数据口径版本戳（供刷新判定）
+        fields = {"data_source": SOURCE, "data_rev": ASHARE_DATA_REV}
         for k in ("name", "long_name", "industry", "sector", "market", "currency"):
             if res.profile.get(k):
                 fields[k] = res.profile[k]
-        for k in ("pe", "pb", "market_cap"):
+        for k in ("pe", "pb", "market_cap", "fcf_yield"):
             if res.valuation.get(k) not in (None, ""):
                 fields[k] = res.valuation[k]
         if fields:
@@ -310,9 +359,12 @@ def _selftest():
     try:
         import pandas as pd
         demo = pd.DataFrame({
-            "指标": ["营业总收入", "归母净利润", "营业成本", "净资产收益率(ROE)"],
-            "20231231": [1000_0000_0000, 500_0000_0000, 300_0000_0000, 31.5],
-            "20221231": [900_0000_0000, 450_0000_0000, 280_0000_0000, 30.0],
+            "指标": ["营业总收入", "归母净利润", "营业成本", "净资产收益率(ROE)",
+                     "资产负债率", "经营现金流量净额", "每股经营现金流", "每股企业自由现金流量"],
+            "20231231": [1000_0000_0000, 500_0000_0000, 300_0000_0000, 31.5,
+                         16.42, 615_0000_0000, 49.13, 61.26],
+            "20221231": [900_0000_0000, 450_0000_0000, 280_0000_0000, 30.0,
+                         18.0, 550_0000_0000, 44.0, 55.0],
         })
         rows = parse_abstract(demo, "600519.SH", is_financial=False)
         print(f"  离线解析样例（600519.SH）：{len(rows)} 年")

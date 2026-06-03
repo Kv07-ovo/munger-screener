@@ -81,6 +81,9 @@ _DEFAULTS = {
     # v2.4.0：A股/通用估值
     "pb":                  "",
     "market_cap":          "",
+    # v2.4.2：A股数据口径版本戳（机器） + 纯人工备注（受保护）
+    "data_rev":            "",
+    "notes":               "",
 }
 
 # ── v1.8：可被年度财务数据自动覆盖的字段（只有这些）──────────
@@ -117,9 +120,12 @@ def _trunc(s, max_w):
 
 # ── v2.2.0-alpha2：待补录展示模式辅助 ────────────────────────
 def _is_pending(result):
-    """数据不足（待补录）→ 进入待补录展示模式，不输出公司质量结论。"""
-    return (str(result.get("final_decision", "")) == "数据不足（待补录）"
-            or str(result.get("data_status", "")) == "待补录")
+    """
+    数据严重不足（待补录）→ 待补录展示模式，不输出质量结论。
+    v2.4.1：只看 final_decision（≥2 关键字段缺失等）；仅 1 项缺失不算 pending，
+    走"部分机器财务分 + 研究优先级封顶中（数据不完整）"。
+    """
+    return str(result.get("final_decision", "")) == "数据不足（待补录）"
 
 def _market_label(market):
     return {"US": "美股", "CN": "A股"}.get(str(market).strip().upper(), "未知")
@@ -618,7 +624,7 @@ def lookup_ticker(ticker, all_results):
 # ============================================================
 
 def _has_annual(canonical):
-    """annual_financials.csv 是否已有该 ticker 的年度财务（用于判断 A股是否需刷新）。"""
+    """annual_financials.csv 是否已有该 ticker 的年度财务。"""
     if not os.path.exists(ANNUAL_PATH):
         return False
     try:
@@ -629,6 +635,31 @@ def _has_annual(canonical):
                        for row in _csv.DictReader(f))
     except Exception:
         return False
+
+
+def _ashare_needs_refresh(canonical):
+    """
+    v2.4.2：A股是否需要重新抓取年度数据（仅 CN 用，不影响美股）。
+      - 无 annual 行 → 需刷新
+      - stocks.csv 的 data_rev 为空/缺失/非数字 → 视为旧数据 → 需刷新
+      - data_rev < 当前 ASHARE_DATA_REV → 需刷新
+      - data_rev == 当前 → 最新，不刷新
+    判定本身只读，不抓取、不写库。
+    """
+    if not _has_annual(canonical):
+        return True
+    try:
+        from providers import ashare_provider   # 仅取常量，import 不需要 akshare
+        current = int(ashare_provider.ASHARE_DATA_REV)
+    except Exception:
+        return False   # 取不到当前口径版本时，不强制刷新（保留现有数据）
+    row = store.get(canonical)
+    rev_raw = "" if row is None else str(row.get("data_rev", "")).strip()
+    try:
+        rev = int(float(rev_raw))      # 空/非数字 → 抛异常 → 视为旧数据
+    except (ValueError, TypeError):
+        return True
+    return rev < current
 
 
 def ensure_local(raw_ticker):
@@ -696,9 +727,11 @@ def ensure_local(raw_ticker):
         except Exception as e:
             print(f"  ⚠ 估值抓取失败（{e}），可稍后运行 fetcher.py --valuation。")
     elif r.market == "CN":
-        # A股：新建必抓；已存在但尚无年度财务则刷新。akshare 调用全封装在 provider 层。
-        if existed and _has_annual(r.canonical):
-            pass   # 已有年度财务，不重复抓取
+        # A股：新建必抓；已存在但数据陈旧/口径过时（data_rev 旧）则刷新。
+        # akshare 调用全封装在 provider 层；判定只读、不影响美股。
+        needs = (not existed) or _ashare_needs_refresh(r.canonical)
+        if not needs:
+            pass   # 已有最新口径年度数据，不重复抓取
         else:
             try:
                 from providers import ashare_provider
@@ -706,15 +739,17 @@ def ensure_local(raw_ticker):
                 ashare_provider = None
                 print(f"  ⚠ 无法加载 ashare_provider（{e}），A股回退待补录。")
             if ashare_provider and ashare_provider.is_available():
-                print("  使用 AKShare 抓取 A股数据（基础信息/估值/年度财务）...")
+                action = "刷新（检测到旧/缺数据）" if existed else "抓取"
+                print(f"  使用 AKShare {action} A股数据（基础信息/估值/年度财务）...")
                 try:
                     ashare_provider.ingest(r.canonical, r.exchange)
                 except Exception as e:
-                    print(f"  ⚠ AKShare 抓取异常（{e}），保留骨架，待补录（不误判为差公司）。")
+                    print(f"  ⚠ AKShare 抓取异常（{e}），保留现有数据，标记待刷新（不清空、不误判）。")
             else:
-                print("  未安装 akshare，A股回退为『数据不足，待补录』。")
+                # 未装 akshare/不可用：保留旧数据，仅提示待刷新——绝不清空、绝不崩
+                print("  待刷新：未安装 akshare，A股数据无法抓取/刷新；保留现有数据。")
                 print("  安装 A股数据支持： pip install -r requirements-optional.txt")
-                print("  （安装后重跑即可；当前不会误判为差公司。）")
+                print("  （安装后重跑即可；当前不会误判为差公司，也不会清空已有数据。）")
 
     return r.canonical
 
@@ -735,8 +770,8 @@ def generate_ai_for(canonical, stocks, results):
     if row is None or res is None:
         return
 
-    is_pending = (str(res.get("final_decision", "")) == "数据不足（待补录）"
-                  or str(res.get("data_status", "")) == "待补录")
+    # v2.4.1：只有"严重不足"(final_decision)才不生成；仅 1 项缺失仍生成（低置信度）
+    is_pending = _is_pending(res)
     metrics = {k: row.get(k) for k in (
         "roe_5y_avg", "roic_5y_avg", "gross_margin_5y_avg", "net_margin_5y_avg",
         "revenue_growth_5y_cagr", "debt_to_equity", "fcf_positive_years", "pe",

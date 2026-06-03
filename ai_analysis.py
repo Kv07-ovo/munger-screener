@@ -132,8 +132,10 @@ class HeuristicProvider:
         # ── 置信度：按数据完整度，封顶 0.5 ─────────────────────
         confidence = round(min(CONFIDENCE_CAP, n_present / len(_KEY_METRICS) * CONFIDENCE_CAP), 2)
 
+        _gm_s   = f"{gm}%"   if gm   is not None else "缺失"
+        _roic_s = f"{roic}%" if roic is not None else "缺失"
         reason = (
-            f"高毛利率({gm}%)/ROIC({roic}%) 等财务特征"
+            f"毛利率({_gm_s})/ROIC({_roic_s}) 等财务特征"
             f"{'可能存在定价权或护城河' if moat >= 6 else '显示护城河可能一般'}"
             f"（待证实，需看竞争格局与转换成本）；"
             f"管理层质量仅凭财务无法判断，需人工复核年报与资本配置历史。"

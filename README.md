@@ -68,10 +68,15 @@ python main.py 300750        # 创业板；688981 科创板
 
 - **未安装 akshare 时**：A股自动回退为「数据不足，待补录」，**不会崩、不会误判为差公司**；安装后重跑即可。
 - 自动抓取：名称/行业、PE、PB、市值、年度营收/净利润、ROE、毛利率、净利率（写入 `annual_financials.csv`，单位与美股一致）。
-- **拿不到的字段不造假、直接留空**进 `missing_fields`：ROIC、自由现金流（AKShare 无稳定口径）、银行/券商的 D-E（不适用）。
+- **v2.4.1 关键字段补算（仅用真实 AKShare 字段，不伪造）**：
+  - `debt_to_equity` ← 资产负债率换算 `r/(1-r)`（仅非金融；银行/保险/券商留空，避免 D/E>3 误判为高风险）；
+  - `free_cash_flow` ← 每股企业自由现金流量 × 推算股本（≈OCF−资本支出，数据源已算）；据此再得 `fcf_positive_years`、`fcf_yield`；
+  - **ROIC 无可靠口径 → 一律留空，绝不乱算**。
+- **拿不到的字段不造假、直接留空**进 `missing_fields`。普通 A股若仍缺 ROIC：**显示部分机器财务分，但研究优先级最高只到「中研究优先级（数据不完整）」**，绝不误判为差公司。
 - **银行/保险/券商**：自动识别为特殊金融类，不硬套普通企业 FCF Yield / 毛利率 / ROIC，缺数据进入「待补录」而非判差。
 - AKShare 全部调用封装在 `providers/ashare_provider.py`，`main.py` 只按市场分发，不出现 akshare 代码。
-- 所有 A股写入仍经 `store.py` 白名单：**绝不覆盖** `moat_score`/`management_score`/`circle_of_competence`/`notes` 等人工字段。
+- **数据口径自动刷新（v2.4.2）**：`stocks.csv` 的机器列 `data_rev` 记录 A股数据抓取口径版本。升级后若该列为空/旧（`< ASHARE_DATA_REV`），下次查询会**自动用 AKShare 重新抓取**该股（补上 D/E、FCF 等新口径字段），而非沿用旧的不完整数据；抓取成功后 `data_rev` 置为当前版本，之后不再重复抓。未装 akshare 或抓取失败时**只提示「待刷新」、保留现有数据，不清空、不崩**。
+- 所有 A股写入仍经 `store.py` 白名单：**绝不覆盖** `moat_score`/`management_score`/`circle_of_competence`/`notes`/各 `reason`/`risk_note` 等人工字段。`notes` 为**纯人工备注列**（机器与 AI 都不可写）。
 
 ---
 
