@@ -272,10 +272,15 @@ def _build_lines(result):
     return L
 
 
+def card_text(result):
+    """返回研究卡片纯文本（供 Web 展示/下载、CLI 打印共用）。"""
+    return "\n".join(_build_lines(result))
+
+
 def render(result):
     """打印一张研究卡片。"""
     print()
-    print("\n".join(_build_lines(result)))
+    print(card_text(result))
 
 
 def save_card(result, notes_dir=None):
