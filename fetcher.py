@@ -307,7 +307,7 @@ def fetch_valuation_yf(ticker):
     mkt = info.get("marketCap")
 
     if _valid_num(fcf) and _valid_num(mkt) and float(mkt) != 0:
-        fcf_yield     = round(float(fcf) / float(mkt), 4)
+        fcf_yield     = round(float(fcf) / float(mkt) * 100, 4)
         fcf_yield_src = "freeCashflow/marketCap"
     else:
         if not _valid_num(fcf):

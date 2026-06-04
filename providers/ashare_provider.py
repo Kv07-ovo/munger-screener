@@ -280,7 +280,7 @@ def fetch(canonical):
         if latest_fcf not in ("", None) and mcap:
             try:
                 # FCF 十亿(1e9) / 市值 亿(1e8) → *10
-                res.valuation["fcf_yield"] = round(float(latest_fcf) * 10 / float(mcap), 4)
+                res.valuation["fcf_yield"] = round(float(latest_fcf) * 10 / float(mcap) * 100, 4)
             except (ValueError, ZeroDivisionError):
                 pass
 
