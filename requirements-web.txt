@@ -1,0 +1,9 @@
+# 网页（Streamlit Web MVP）依赖
+# 安装：pip install -r requirements-web.txt
+#
+# 说明：
+#   - 仅放网页所需依赖；核心评分依赖见 requirements.txt（pandas 等）。
+#   - AKShare 仍为可选依赖（见 requirements-optional.txt），未安装时
+#     A股自动回退「数据不足，待补录」，网页不会崩。
+
+streamlit

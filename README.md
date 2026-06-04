@@ -127,6 +127,30 @@ python main.py 300750        # 创业板；688981 科创板
 
 ---
 
+## 网页版（Web MVP，Streamlit）
+
+除命令行外，提供一个网页入口（输入代码 → 点按钮 → 生成研究卡片）。CLI 与网页**共用同一核心** `research_service.run_research()`，不复制逻辑。
+
+```bash
+# 安装网页依赖（akshare 仍为可选，不在此）
+pip install -r requirements-web.txt
+
+# 可写模式（本地：本地无该代码时会自动抓取并建档，经 store 白名单，不覆盖人工字段）
+streamlit run web_app.py
+
+# 只读模式（不抓取、不建骨架、不写任何本地文件）
+WEB_READONLY=1 streamlit run web_app.py
+```
+
+默认地址 http://localhost:8501 。页面展示：标的/市场/数据来源、机器财务分(/75)、研究优先级（标注「研究优先级，不是买卖建议」）、AI 初判（标注「AI 暂定，非人工确认」）、缺失字段（显示「待补录」）、核心财务数据、研究卡片全文与 Markdown 下载。
+
+- **只读模式 `WEB_READONLY=1`**：本地没有该代码时显示「本地暂无数据，当前为只读模式」，**绝不抓取/建骨架/写盘**。
+- 第一版**只读展示**，无人工字段编辑入口；全程不输出买入/卖出/持有建议。
+
+> 云端部署注意：CSV 在临时文件系统会随重启丢失，需 persistent disk 或迁移到 SQLite/Postgres；多用户写入需加锁。详见项目设计说明。
+
+---
+
 ## 文件结构
 
 ```
@@ -142,6 +166,9 @@ munger_screener/
 │   └── manual_fill_template.xlsx # 人工补录模板（Excel 格式，推荐）
 ├── ticker_resolver.py    # v2.2.0：识别市场(US/CN)+规范化代码
 ├── store.py              # v2.2.0：CSV 数据访问层 + 人工/机器/AI 三类白名单
+├── research_service.py   # v2.5.0：核心研究流水线（CLI 与 Web 共用，run_research）
+├── web_app.py            # v2.5.0：Streamlit 网页入口（调 run_research，只读展示）
+├── requirements-web.txt  # 网页依赖（streamlit）
 ├── research_card.py      # v2.3.0：自动研究卡片（机器财务分/质化分分区展示）
 ├── ai_analysis.py        # v2.3.0：AI 质化初判（HeuristicProvider 纯规则，只写 ai_*）
 ├── providers/
