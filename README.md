@@ -135,36 +135,36 @@ python main.py 300750        # 创业板；688981 科创板
 # 安装网页依赖（akshare 仍为可选，不在此）
 pip install -r requirements-web.txt
 
-# 可写模式（本地：本地无该代码时会自动抓取并建档，经 store 白名单，不覆盖人工字段）
+# 只读模式（默认：不抓取、不建骨架、不写任何本地文件）
 streamlit run web_app.py
 
-# 只读模式（不抓取、不建骨架、不写任何本地文件）
-WEB_READONLY=1 streamlit run web_app.py
+# 可写模式（本地无该代码时会自动抓取并建档，经 store 白名单，不覆盖人工字段）
+WEB_WRITABLE=1 streamlit run web_app.py
 ```
 
 默认地址 http://localhost:8501 。页面展示：标的/市场/数据来源、机器财务分(/75)、研究优先级（标注「研究优先级，不是买卖建议」）、AI 初判（标注「AI 暂定，非人工确认」）、缺失字段（显示「待补录」）、核心财务数据、研究卡片全文与 Markdown 下载。
 
-- **只读模式 `WEB_READONLY=1`**：本地没有该代码时显示「本地暂无数据，当前为只读模式」，**绝不抓取/建骨架/写盘**。
+- **只读模式（默认）**：本地没有该代码时显示「本地暂无数据，当前为只读模式」，**绝不抓取/建骨架/写盘**；需写盘请显式 `WEB_WRITABLE=1`。
 - 第一版**只读展示**，无人工字段编辑入口；全程不输出买入/卖出/持有建议。
 - 页面顶部显示**当前运行模式**；卡片全文支持一键复制（代码框右上角图标）或展开文本框全选复制；提供 Markdown 下载；并在本次会话内记录**最近查询**（点击可快速再查，仅 session 内、不写文件）。
 
 ### 网页手测说明
 
 ```bash
-# 默认（可写）模式：本地无该代码时会抓取并更新本地数据
+# 默认（只读）模式：不抓取、不写盘
 streamlit run web_app.py
 
-# 只读模式：不抓取、不写盘
-WEB_READONLY=1 streamlit run web_app.py
+# 可写模式：本地无该代码时会抓取并更新本地数据
+WEB_WRITABLE=1 streamlit run web_app.py
 ```
 
-- **可写模式手测会改动数据**：查询本地没有的（或需刷新的）代码时，会更新 `data/stocks.csv` / `data/annual_financials.csv`（经 store 白名单，不覆盖人工字段）。
+- **可写模式（`WEB_WRITABLE=1`）手测会改动数据**：查询本地没有的（或需刷新的）代码时，会更新 `data/stocks.csv` / `data/annual_financials.csv`（经 store 白名单，不覆盖人工字段）。
 - **只想手测、不保留数据变化**：测完用下面命令丢弃即可（页面顶部横幅也有提示）：
 
   ```bash
   git restore data/stocks.csv data/annual_financials.csv
   ```
-- 想完全不写盘地手测，直接用只读模式 `WEB_READONLY=1 streamlit run web_app.py`。
+- 想完全不写盘地手测，直接用默认只读模式 `streamlit run web_app.py`（默认即只读）。
 
 > 云端部署注意：CSV 在临时文件系统会随重启丢失，需 persistent disk 或迁移到 SQLite/Postgres；多用户写入需加锁。详见项目设计说明。
 

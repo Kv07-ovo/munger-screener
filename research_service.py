@@ -563,7 +563,7 @@ def run_research(ticker: str, readonly: bool = False) -> dict:
     返回 dict：
       ok, input, canonical, error, result, research_priority, card_text, readonly, warnings
 
-    readonly=True（只读模式，对应 WEB_READONLY=1）：
+    readonly=True（只读模式，Web 默认；可写需显式 WEB_WRITABLE=1）：
       - 不抓取新数据、不建骨架、不写 stocks.csv / annual_financials.csv / ai_*；
       - 仅读取本地已有数据并展示；
       - 本地无该 ticker → ok=False，error="本地暂无数据，当前为只读模式"。

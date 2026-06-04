@@ -6,7 +6,7 @@
 # 原则：
 #   - 不复制 main.py 逻辑：核心一律走 research_service.run_research。
 #   - 不改评分公式 / research_priority / AI 逻辑 / store 白名单。
-#   - 只读模式 WEB_READONLY=1：不抓取、不建骨架、不写盘、不写 ai_*。
+#   - 默认只读；仅 WEB_WRITABLE=1 时可写。只读：不抓取、不建骨架、不写盘、不写 ai_*。
 #   - 第一版只读展示，无人工字段编辑入口。
 #   - 仅研究辅助，不输出买入/卖出/持有建议；缺失=待补录，非公司差。
 #
@@ -15,8 +15,8 @@
 #       只读）补取这 6 个财务比率，不修改 research_service。
 #
 # 运行：
-#   streamlit run web_app.py                  # 可写模式（本地）
-#   WEB_READONLY=1 streamlit run web_app.py   # 只读模式
+#   streamlit run web_app.py                  # 只读模式（默认）
+#   WEB_WRITABLE=1 streamlit run web_app.py   # 可写模式（本地）
 # ============================================================
 
 import os
@@ -28,7 +28,7 @@ import research_service
 from research_service import ANNUAL_PATH
 from financial_analyzer import compute_all_metrics
 
-READONLY = os.environ.get("WEB_READONLY", "").strip() == "1"
+READONLY = os.environ.get("WEB_WRITABLE", "").strip() != "1"
 
 st.set_page_config(page_title="芒格式股票研究助手", page_icon="📊", layout="wide")
 
@@ -223,11 +223,12 @@ st.warning("仅作为研究辅助，不构成买入、卖出、持有建议。")
 
 # 顶部运行模式横幅（Web Alpha）
 if READONLY:
-    st.info("**当前模式：只读模式（WEB_READONLY=1）**　🔒\n\n"
+    st.info("**当前模式：只读模式（默认）**　🔒\n\n"
             "只读模式**不会写盘**：不抓取新数据、不建骨架、不写任何本地文件。"
-            "本地暂无的代码会提示「本地暂无数据，当前为只读模式」。")
+            "本地暂无的代码会提示「本地暂无数据，当前为只读模式」。"
+            "如需抓取并写盘，请用 `WEB_WRITABLE=1 streamlit run web_app.py`。")
 else:
-    st.warning("**当前模式：可写模式**　✍️\n\n"
+    st.warning("**当前模式：可写模式（WEB_WRITABLE=1）**　✍️\n\n"
                "可写模式**可能会抓取数据并更新本地 CSV**（`data/stocks.csv`、`data/annual_financials.csv`），"
                "经 store 白名单写入、**不覆盖人工字段**。若只是手测、不想保留数据变化，可用 "
                "`git restore data/stocks.csv data/annual_financials.csv` 丢弃。")
