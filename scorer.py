@@ -136,7 +136,12 @@ def score_valuation(row):
     score, detail = 0.0, {}
     pe      = _safe_float(row.get("pe"), default=999.0)
     fcf_yld = _safe_float(row.get("fcf_yield"))
-    pe_pct  = _safe_float(row.get("pe_percentile_5y"))
+    # pe_percentile_5y 严格解析：空/缺失/不可解析 → 不参与分位调整（不再白送 +1）
+    raw_pe_pct = str(row.get("pe_percentile_5y", "")).strip()
+    try:
+        pe_pct = float(raw_pe_pct) if raw_pe_pct not in ("", "未填写", "None", "nan") else None
+    except (ValueError, TypeError):
+        pe_pct = None
 
     if pe <= 0 or pe > 500:
         pe = 999.0
@@ -150,7 +155,9 @@ def score_valuation(row):
     bonus = 3 if (pe <= 25 and fcf_yld >= 3) else 0
     score += bonus;  detail["估值合理奖励"] = bonus
 
-    if pe_pct <= 25:
+    if pe_pct is None:
+        adj, adj_str = 0, "0（无分位数据）"
+    elif pe_pct <= 25:
         adj, adj_str = 1, "+1（历史低位）"
     elif pe_pct > 80:
         adj, adj_str = -3, f"-3（{pe_pct:.0f}%历史高位）"
