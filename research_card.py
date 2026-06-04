@@ -237,6 +237,30 @@ def _build_lines(result):
         out("    未生成（运行 python main.py <代码> 触发；数据不足时不生成）")
     out("─" * _W)
 
+    # ── 评分并排（实验；AI 动态分不参与正式排序）─────────────────
+    out("  【评分并排（实验）】")
+    rb = _f(result, "total_score")
+    out(f"    规则总分：{rb:.0f}/100")
+    out(f"    机器财务分：{_machine_total(result):.0f}/75")
+    aidyn = result.get("ai_dynamic")
+    if not aidyn:
+        out("    AI 动态分：AI 动态评分未生成")
+        out("    AI 置信度：—")
+    else:
+        _as = aidyn.get("ai_score")
+        if _as is None:
+            out(f"    AI 动态分：数据不足（{_uf(aidyn.get('ai_rating'))}）")
+        else:
+            out(f"    AI 动态分：{_as}/100（{_uf(aidyn.get('ai_rating'))}）")
+        out(f"    AI 置信度：{_uf(aidyn.get('confidence'))}")
+    fsp = result.get("final_score_preview")
+    try:
+        fsp_s = f"{float(fsp):.0f}/100"
+    except (TypeError, ValueError):
+        fsp_s = f"{rb:.0f}/100"
+    out(f"    最终预览分：{fsp_s}（实验字段，不参与正式排序）")
+    out("─" * _W)
+
     # ── 研究优先级（合成；非买卖建议）───────────────────────────
     prio, why = research_priority(result)
     out(f"  【研究优先级】{prio}")

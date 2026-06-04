@@ -30,11 +30,12 @@ import pandas as pd
 
 import store
 import ai_analysis
+import ai_scorer
 import research_card
 from ticker_resolver     import resolve, UNKNOWN
 from scorer              import score_stock
 from validator           import (validate_data, get_final_decision, filter_fin_warning,
-                                  missing_key_quant_fields, quant_labels)
+                                  missing_key_quant_fields, quant_labels, effective_industry)
 from financial_analyzer  import compute_all_metrics
 
 BASE_DIR      = os.path.dirname(os.path.abspath(__file__))
@@ -457,6 +458,85 @@ def generate_ai_for(canonical, stocks, results):
 
 
 # ============================================================
+# AI 动态评分（Phase 1：旁路、纯内存、不写盘、不联网）
+# 仅向 result 注入展示字段 res["ai_dynamic"] 与 res["final_score_preview"]，
+# 绝不调用 store、绝不写 stocks.csv、绝不参与排序。
+# ============================================================
+
+# AI 动态评分输入用到的原始指标（取自 stocks 行，而非评分结果）
+_DYN_METRIC_FIELDS = (
+    "roe_5y_avg", "roic_5y_avg", "gross_margin_5y_avg", "net_margin_5y_avg",
+    "fcf_positive_years", "debt_to_equity", "revenue_growth_5y_cagr", "eps_growth_5y_cagr",
+    "pe", "fcf_yield", "pe_percentile_5y", "pb", "market_cap",
+    "roe_trend", "roic_trend", "margin_trend", "revenue_trend",
+)
+# 规则分上下文（只读引用，AI 不可改写）
+_DYN_DIM_KEYS = (
+    "quality_score", "moat_score", "growth_score", "balance_sheet_score",
+    "valuation_score", "management_score", "risk_penalty", "trend_score",
+)
+_FINANCIAL_INDUSTRY_KW = ("银行", "保险", "证券", "券商", "资本市场", "综合控股")
+
+
+def _build_dynamic_payload(row, res):
+    """组装 AI 动态评分输入：原始指标 + 缺失标记(权威) + 行业/类型 + 规则分上下文。"""
+    _missing = missing_key_quant_fields(row)
+    ind = effective_industry(row)
+    return {
+        "company_type": {
+            "industry": row.get("industry", ""),
+            "sector":   row.get("sector", ""),
+            "is_special_financial": any(kw in ind for kw in _FINANCIAL_INDUSTRY_KW),
+        },
+        "metrics": {k: row.get(k) for k in _DYN_METRIC_FIELDS},
+        "missing_fields": {
+            "missing_quant_fields": _missing,
+            "missing_quant_labels": quant_labels(_missing),
+            "data_status": res.get("data_status", ""),
+            "is_pending":  _is_pending(res),
+        },
+        "rule_based_context": {
+            "rule_based_score":     res.get("total_score"),
+            "rule_based_score_max": 100,
+            "dimension_scores": {k: res.get(k) for k in _DYN_DIM_KEYS},
+        },
+    }
+
+
+def attach_dynamic_score(canonical, stocks, results):
+    """
+    为查询的单只股票生成 AI 动态评分并注入 result（仅展示）。
+    - 数据不足 → res["ai_dynamic"] 为合法的「数据不足」结构（rating=数据不足, ai_score=None）。
+    - provider 异常 / 校验失败 / 内部异常 → res["ai_dynamic"]=None（UI 显示「AI 动态评分未生成」）。
+    任何情况下 final_score_preview 都有值、且不参与排序；不写任何文件。
+    """
+    canonical = str(canonical).strip().upper()
+    res = next((r for r in results
+                if str(r.get("ticker", "")).strip().upper() == canonical), None)
+    if res is None:
+        return
+    try:
+        row = next((r for r in stocks
+                    if str(r.get("canonical_ticker") or r.get("ticker", "")).strip().upper() == canonical),
+                   None)
+        if row is None:
+            res["ai_dynamic"] = None
+            res["final_score_preview"] = res.get("total_score")
+            return
+        out = ai_scorer.score_dynamic(_build_dynamic_payload(row, res))
+        if out is None:                                   # 失败 → 未生成
+            res["ai_dynamic"] = None
+            res["final_score_preview"] = res.get("total_score")
+        else:
+            res["ai_dynamic"] = out
+            res["final_score_preview"] = ai_scorer.compute_final_preview(
+                res.get("total_score"), out.get("ai_score"))
+    except Exception:                                     # 兜底：绝不影响主流程
+        res["ai_dynamic"] = None
+        res["final_score_preview"] = res.get("total_score")
+
+
+# ============================================================
 # 共用编排：单股研究（CLI 与 Web 都调）
 # ============================================================
 
@@ -525,6 +605,9 @@ def run_research(ticker: str, readonly: bool = False) -> dict:
 
     if not readonly:
         generate_ai_for(canonical, stocks, results)   # 写 ai_*（仅非只读）
+
+    # Phase 1：AI 动态评分（旁路、纯内存、不写盘、不联网；只读模式也生成供展示）
+    attach_dynamic_score(canonical, stocks, results)
 
     out["ok"]                = True
     out["result"]            = res

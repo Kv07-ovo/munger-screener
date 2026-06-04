@@ -113,6 +113,36 @@ def render_result(res):
         st.write("未生成（数据不足时不生成 AI 初判）。")
     st.divider()
 
+    # 评分并排（实验；AI 动态分不参与正式排序）
+    st.markdown("### 评分并排（实验）")
+    st.caption("⚠ final_score_preview 为**实验字段**，未经确认**不作为正式排序依据**；非投资建议。")
+    aidyn = result.get("ai_dynamic")
+    rb    = _num(result, "total_score")
+    mt    = _machine_total(result)
+    e1, e2, e3, e4, e5 = st.columns(5)
+    e1.metric("规则总分", f"{rb:.0f}/100")
+    e2.metric("机器财务分", f"{mt:.0f}/75")
+    if not aidyn:
+        e3.metric("AI 动态分", "未生成")
+        e4.metric("AI 置信度", "—")
+    else:
+        _as = aidyn.get("ai_score")
+        e3.metric("AI 动态分", "数据不足" if _as is None else f"{_as}/100")
+        e4.metric("AI 置信度", _fmt(aidyn.get("confidence")))
+    fsp = result.get("final_score_preview")
+    try:
+        fsp_s = f"{float(fsp):.0f}/100"
+    except (TypeError, ValueError):
+        fsp_s = f"{rb:.0f}/100"
+    e5.metric("最终预览分", fsp_s)
+    if aidyn:
+        st.markdown(f"**AI 评级**：{_fmt(aidyn.get('ai_rating'))}　|　"
+                    f"**needs_human_review**：`{aidyn.get('needs_human_review')}`")
+        st.markdown(f"**AI 分析（ai_reasoning）**：{_fmt(aidyn.get('ai_reasoning'))}")
+    else:
+        st.info("AI 动态评分未生成（provider 异常 / 校验失败 / 内部异常时显示此项；不影响规则评分与展示）。")
+    st.divider()
+
     # 缺失字段（待补录）
     st.markdown("### 缺失字段")
     mf = str(result.get("missing_fields", "") or "").strip()
