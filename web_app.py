@@ -141,10 +141,13 @@ def render_result(res):
     st.caption("财务比率为机器自动计算（年度数据 5 年口径）；空值表示「待补录」，非公司差。")
     st.divider()
 
-    # 研究卡片全文 + 下载
+    # 研究卡片全文 + 复制 + 下载
     st.markdown("### 研究卡片全文")
     card = res.get("card_text") or ""
     st.code(card, language="text")
+    st.caption("💡 点击代码框右上角的复制图标可一键复制全文；或展开下方文本框全选复制。")
+    with st.expander("展开纯文本（便于全选复制）"):
+        st.text_area("研究卡片文本", value=card, height=320, label_visibility="collapsed")
     st.download_button("⬇ 下载研究卡片（Markdown）", data=card,
                        file_name=f"{canonical}_card.md", mime="text/markdown")
 
@@ -159,28 +162,64 @@ def render_result(res):
 st.title("📊 芒格式股票研究助手")
 st.warning("仅作为研究辅助，不构成买入、卖出、持有建议。")
 
+# 顶部运行模式横幅（Web Alpha）
 if READONLY:
-    st.info("🔒 **只读模式**（WEB_READONLY=1）：不抓取新数据、不建骨架、不写本地文件。"
+    st.info("**当前模式：只读模式（WEB_READONLY=1）**　🔒\n\n"
+            "只读模式**不会写盘**：不抓取新数据、不建骨架、不写任何本地文件。"
             "本地暂无的代码会提示「本地暂无数据，当前为只读模式」。")
 else:
-    st.caption("可写模式：本地无该代码时会自动抓取并建立本地档案"
-               "（经 store 白名单，**不覆盖人工字段**）。")
+    st.warning("**当前模式：可写模式**　✍️\n\n"
+               "可写模式**可能会抓取数据并更新本地 CSV**（`data/stocks.csv`、`data/annual_financials.csv`），"
+               "经 store 白名单写入、**不覆盖人工字段**。若只是手测、不想保留数据变化，可用 "
+               "`git restore data/stocks.csv data/annual_financials.csv` 丢弃。")
 
 with st.form("query_form"):
     ticker = st.text_input("股票代码", placeholder="AAPL / MSFT / 600519.SH / 000001.SZ")
     submitted = st.form_submit_button("生成研究卡片", type="primary")
 
+# 决定本次要查询的代码：表单提交 或 点击「最近查询」
+run_ticker = None
 if submitted:
-    t = (ticker or "").strip()
-    if not t:
-        st.error("请输入股票代码。")
+    tv = (ticker or "").strip()
+    if tv:
+        run_ticker = tv
     else:
-        with st.spinner(f"正在生成 {t} 的研究卡片……"):
-            res = research_service.run_research(t, readonly=READONLY)
-        if not res.get("ok"):
-            st.error(res.get("error") or "无法生成研究卡片。")
+        st.error("请输入股票代码。")
+requery = st.session_state.pop("_requery", None)
+if requery:
+    run_ticker = requery   # 点击最近查询：仍遵守当前 READONLY，绝不绕过
+
+if run_ticker:
+    with st.spinner(f"正在生成 {run_ticker} 的研究卡片……"):
+        # READONLY 始终透传：只读模式下点击最近查询也不会写盘
+        res = research_service.run_research(run_ticker, readonly=READONLY)
+    if not res.get("ok"):
+        if res.get("canonical") is None:
+            st.error("无法识别该股票代码，请检查格式，例如 AAPL、MSFT、600519.SH、000001.SZ。")
+        elif res.get("readonly") and res.get("canonical"):
+            st.error("本地暂无数据，当前为只读模式。请切换可写模式或先用 CLI/可写模式生成数据。")
         else:
-            render_result(res)
+            st.error(res.get("error") or "无法生成研究卡片。")
+    else:
+        # 更新 session 内最近查询（仅本次会话，不写文件、不持久化）
+        canon = res["canonical"]
+        hist = st.session_state.setdefault("history", [])
+        if canon in hist:
+            hist.remove(canon)
+        hist.insert(0, canon)
+        del hist[8:]
+        render_result(res)
+
+# 最近查询（仅本次会话内；点击可快速再次查询，遵守当前 READONLY）
+hist = st.session_state.get("history", [])
+if hist:
+    st.divider()
+    st.markdown("**最近查询**（仅本次会话内，不写文件）：")
+    cols = st.columns(len(hist))
+    for i, h in enumerate(hist):
+        if cols[i].button(h, key=f"hist_{i}_{h}"):
+            st.session_state["_requery"] = h
+            st.rerun()
 
 st.divider()
 st.caption("研究优先级仅表示「值得进一步研究的程度」，不是投资建议。"
