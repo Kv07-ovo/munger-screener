@@ -45,7 +45,8 @@ class _Surface:
     def columns(self, spec, **k):
         n = spec if isinstance(spec, int) else len(spec)
         self._rec.append(("columns", (spec,), k))
-        return [_Surface(self._rec) for _ in range(n)]
+        # 返回 _CtxSurface 以支持 `with col:`（桌面两栏）与列上方法调用
+        return [_CtxSurface(self._rec) for _ in range(n)]
 
     # 有返回值的控件（必须给出合理默认，否则 import 期页面主体会出错）
     def text_input(self, *a, **k):
@@ -57,6 +58,14 @@ class _Surface:
     def button(self, *a, **k):
         self._rec.append(("button", a, k)); return False
 
+    def container(self, *a, **k):
+        # Gamma 卡片化用 with st.container(border=True[, key=...]):；返回可 with 且可记录子调用的 surface
+        self._rec.append(("container", a, k)); return _CtxSurface(self._rec)
+
+    def popover(self, *a, **k):
+        # Header 的 说明/设置 用 with st.popover(...): —— 返回可 with 且可记录的 surface
+        self._rec.append(("popover", a, k)); return _CtxSurface(self._rec)
+
     # 其它 st.* / col.* 一律泛化为记录器，返回 None
     def __getattr__(self, name):
         rec = object.__getattribute__(self, "_rec")
@@ -65,6 +74,15 @@ class _Surface:
             rec.append((name, a, k))
             return None
         return _call
+
+
+class _CtxSurface(_Surface):
+    """既能 with（上下文管理器）又能记录子调用的 surface，供 st.container 卡片化使用。"""
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
 
 
 def _make_fake_st():
@@ -157,8 +175,10 @@ def _all_text(calls):
     return "\n".join(out)
 
 
-_EXPECTED_HEADERS = ["### 评分", "### 关键优势", "### 关键风险", "### 缺失字段",
-                     "### 研究优先级", "### 核心财务数据", "### 完整研究卡片"]
+# Aura Logic 两栏：左主栏先于右辅栏发出 ### 标题。
+# 左主栏：评分 → 关键优势 → 主要风险 → 研究优先级；右辅栏：核心财务数据 → 缺失字段 → 完整研究卡片。
+_EXPECTED_HEADERS = ["### 评分", "### 关键优势", "### 主要风险", "### 研究优先级",
+                     "### 核心财务数据", "### 缺失字段", "### 完整研究卡片"]
 _SCORE_PAT = re.compile(r"\d\s*/\s*(100|75)")
 
 
@@ -223,6 +243,15 @@ class TestWebRender(unittest.TestCase):
         self.assertIn("AI 权重 = 0.0", text)
         self.assertIn("≠ 可买入", text)
         self.assertIn("待补录", text)
+
+    def test_cat_asset_is_offline(self):
+        # 非谈判约束：小猫为内联 SVG data URI，绝不用远程 URL（离线、不联网）。
+        # 注意 SVG 含标准命名空间 xmlns="http://www.w3.org/2000/svg"——那是命名空间标识，
+        # 不是网络抓取；因此只锁「远程抓取」特征：https:// / src= / googleusercontent。
+        web_app, _ = _load_web_app()
+        self.assertTrue(web_app._CAT_DATA_URI.startswith("data:image/svg+xml;base64,"))
+        for needle in ("https://", "googleusercontent", "src="):
+            self.assertNotIn(needle, web_app._CAT_SVG)
 
 
 if __name__ == "__main__":
