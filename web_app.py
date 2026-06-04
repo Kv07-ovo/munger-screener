@@ -73,87 +73,100 @@ def render_result(res):
     c3.markdown(f"**数据来源**：{_fmt(result.get('data_source'))}")
     st.divider()
 
-    # 机器财务评分（客观，满分 75）
-    st.markdown("### 机器财务评分（客观，满分 75）")
-    if pending:
-        st.warning("数据不足（待补录）：缺失关键财务字段，暂不展示机器财务分与质量结论。")
-    else:
-        mt = _machine_total(result)
-        st.metric("机器财务分", f"{mt:.1f} / 75")
-        st.progress(min(mt / 75.0, 1.0))
-        if incomplete:
-            st.caption("◐ 部分机器财务分：部分关键字段缺失（如 ROIC）；缺失=待补录，非公司差。")
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("生意质量 /30", f"{_num(result, 'quality_score'):.0f}")
-        m2.metric("成长稳定 /15", f"{_num(result, 'growth_score'):.0f}")
-        m3.metric("负债安全 /15", f"{_num(result, 'balance_sheet_score'):.0f}")
-        m4.metric("估值合理 /15", f"{_num(result, 'valuation_score'):.0f}")
-    st.divider()
-
-    # 研究优先级（非买卖建议）
-    prio, why = res["research_priority"]
-    st.markdown("### 研究优先级")
-    st.info(f"**{prio}**")
-    st.caption("⚠ 这是「研究优先级」，**不是买卖建议**。研究优先级高 ≠ 可以买入。")
-    st.write(why)
-    st.divider()
-
-    # AI 初步质化判断（AI 暂定，非人工确认）
-    st.markdown("### AI 初步质化判断")
-    st.caption("🤖 **AI 暂定，非人工确认**；需人工复核。不构成任何投资建议。")
-    if str(result.get("ai_model", "")).strip():
-        a1, a2, a3 = st.columns(3)
-        a1.metric("护城河（AI暂定）/10", _fmt(result.get("ai_moat_score")))
-        a2.metric("管理层（AI暂定）/10", _fmt(result.get("ai_management_score")))
-        a3.metric("置信度（confidence）", _fmt(result.get("ai_confidence")))
-        st.markdown(f"**AI 判断（ai_reason）**：{_fmt(result.get('ai_reason'))}")
-        st.markdown(f"**待补证据（evidence_needed）**：{_fmt(result.get('ai_evidence_needed'))}")
-        st.markdown(f"**needs_human_review**：`{_fmt(result.get('needs_human_review'))}`")
-    else:
-        st.write("未生成（数据不足时不生成 AI 初判）。")
-    st.divider()
-
-    # 评分并排（实验；AI 动态分不参与正式排序）
-    st.markdown("### 评分并排（实验）")
-    st.caption("⚠ final_score_preview 为**实验字段**，未经确认**不作为正式排序依据**；非投资建议。")
+    # ── 评分（②规则总分 ③机器财务分 ④AI动态分 ⑤AI置信度 ⑥最终预览分）──
+    # pending（数据不足）时整体降级：不展示任何分数，保持口径一致。
     aidyn = result.get("ai_dynamic")
     rb    = _num(result, "total_score")
     mt    = _machine_total(result)
-    e1, e2, e3, e4, e5 = st.columns(5)
-    e1.metric("规则总分", f"{rb:.0f}/100")
-    e2.metric("机器财务分", f"{mt:.0f}/75")
-    if not aidyn:
-        e3.metric("AI 动态分", "未生成")
-        e4.metric("AI 置信度", "—")
+    st.markdown("### 评分")
+    if pending:
+        st.warning("数据不足（待补录）：缺失关键财务字段，暂不展示规则总分 / 机器财务分 / "
+                   "AI 动态分 / 最终预览分等分数；补齐数据后可复评。缺失 = 待补录，非公司差。")
     else:
-        _as = aidyn.get("ai_score")
-        e3.metric("AI 动态分", "数据不足" if _as is None else f"{_as}/100")
-        e4.metric("AI 置信度", _fmt(aidyn.get("confidence")))
-    fsp = result.get("final_score_preview")
-    try:
-        fsp_s = f"{float(fsp):.0f}/100"
-    except (TypeError, ValueError):
-        fsp_s = f"{rb:.0f}/100"
-    e5.metric("最终预览分", fsp_s)
-    if aidyn:
-        st.markdown(f"**AI 评级**：{_fmt(aidyn.get('ai_rating'))}　|　"
-                    f"**needs_human_review**：`{aidyn.get('needs_human_review')}`")
-        st.markdown(f"**AI 分析（ai_reasoning）**：{_fmt(aidyn.get('ai_reasoning'))}")
-    else:
-        st.info("AI 动态评分未生成（provider 异常 / 校验失败 / 内部异常时显示此项；不影响规则评分与展示）。")
+        # 第 1 行：规则总分 / 机器财务分 / AI 动态分（窄屏不再单行 5 列）
+        r1c1, r1c2, r1c3 = st.columns(3)
+        r1c1.metric("规则总分", f"{rb:.0f} / 100")
+        r1c2.metric("机器财务分", f"{mt:.0f} / 75")
+        if not aidyn:
+            r1c3.metric("AI 动态分", "未生成")
+        else:
+            _as = aidyn.get("ai_score")
+            r1c3.metric("AI 动态分", "数据不足" if _as is None else f"{_as} / 100")
+        # 第 2 行：AI 置信度 / 最终预览分（实验）
+        r2c1, r2c2 = st.columns(2)
+        if not aidyn:
+            r2c1.metric("AI 置信度", "—")
+        else:
+            _as = aidyn.get("ai_score")
+            r2c1.metric("AI 置信度",
+                        "0.0（数据不足）" if _as is None else f"{_fmt(aidyn.get('confidence'))}（上限 0.50）")
+        fsp = result.get("final_score_preview")
+        try:
+            fsp_s = f"{float(fsp):.0f} / 100"
+        except (TypeError, ValueError):
+            fsp_s = f"{rb:.0f} / 100"
+        r2c2.metric("最终预览分（实验）", fsp_s)
+
+        st.caption("规则总分（/100，含质化+风险，权威口径）比机器财务分（/75，纯客观四维）多 25 分质化。")
+        st.caption("🤖 AI 动态分为**实验·AI 暂定，不参与正式评分与排序，不构成投资建议**；needs_human_review 恒为 true。")
+        st.caption("⚠ 最终预览分（实验）：当前 **AI 权重 = 0.0**，AI 动态分**不计入该分、不影响排序**；非正式总分、不构成投资建议。")
+        if aidyn:
+            st.markdown(f"**AI 评级**：{_fmt(aidyn.get('ai_rating'))}　|　需人工复核：是")
+            st.markdown(f"**AI 分析**：{_fmt(aidyn.get('ai_reasoning'))}")
+        else:
+            st.info("AI 动态评分未生成（provider 异常 / 校验失败 / 内部异常时显示此项；不影响规则评分与展示）。")
+        with st.expander("机器财务分项（满分 75）"):
+            if incomplete:
+                st.caption("◐ 部分机器财务分：部分关键字段缺失（如 ROIC）；缺失 = 待补录，非公司差。")
+            d1, d2, d3, d4 = st.columns(4)
+            d1.metric("生意质量 /30", f"{_num(result, 'quality_score'):.0f}")
+            d2.metric("成长稳定 /15", f"{_num(result, 'growth_score'):.0f}")
+            d3.metric("负债安全 /15", f"{_num(result, 'balance_sheet_score'):.0f}")
+            d4.metric("估值合理 /15", f"{_num(result, 'valuation_score'):.0f}")
     st.divider()
 
-    # 缺失字段（待补录）
+    # ── ⑦关键优势 / ⑧关键风险（来自 ai_dynamic；三态兜底，绝不崩）──
+    def _render_points(title, items_key):
+        st.markdown(f"### {title}")
+        if not aidyn:
+            st.caption("AI 动态评分未生成。")
+            return
+        items = aidyn.get(items_key) or []
+        if not items:
+            st.caption("暂无（数据不足或本次未生成相关条目）。")
+            return
+        for it in items:
+            em = str(it.get("evidence_metric", "")).strip()
+            tail = f"（依据：{em}）" if em else ""
+            st.markdown(f"- {_fmt(it.get('point'))}{tail}")
+
+    _render_points("关键优势", "key_strengths")
+    _render_points("关键风险", "key_risks")
+    st.divider()
+
+    # ── ⑨缺失字段（待补录） + AI missing_data_warnings（同源）──
     st.markdown("### 缺失字段")
     mf = str(result.get("missing_fields", "") or "").strip()
     if mf and mf != "（无）":
         st.warning(f"待补录：{mf}")
-        st.caption("缺失 = **待补录**，不代表公司差；补齐数据后可重新评估。")
+        st.caption("数据不足 = **待补录**，不代表公司差；补齐数据后可重新评估。")
     else:
         st.success("关键量化字段齐全。")
+    if aidyn:
+        mdw = aidyn.get("missing_data_warnings") or []
+        if mdw:
+            st.caption("AI 标注的缺失（同源于数据校验，仅回显不重判）：" + "、".join(str(x) for x in mdw))
     st.divider()
 
-    # 核心财务数据（6 个比率取自 compute_all_metrics，评分同源、只读）
+    # ── ⑩研究优先级（非买卖建议）──
+    prio, why = res["research_priority"]
+    st.markdown("### 研究优先级")
+    st.info(f"**{prio}**")
+    st.warning("⚠ 「研究优先级」只表示**值得花多少研究精力**；研究优先级高 ≠ 好公司，≠ 可买入；非买卖建议。")
+    st.write(why)
+    st.divider()
+
+    # ── 核心财务数据（保留，不折叠；放在研究优先级之后、研究卡片之前）──
     st.markdown("### 核心财务数据")
     fin = compute_all_metrics(ANNUAL_PATH).get(str(canonical).upper(), {})
     rows = [
@@ -171,17 +184,33 @@ def render_result(res):
     st.caption("财务比率为机器自动计算（年度数据 5 年口径）；空值表示「待补录」，非公司差。")
     st.divider()
 
-    # 研究卡片全文 + 复制 + 下载
-    st.markdown("### 研究卡片全文")
+    # ── 旧 AI 初步质化判断（持久化初判，折叠；与本次动态评分区分降权）──
+    with st.expander("AI 初步质化判断（持久化初判，与本次动态评分不同）"):
+        st.caption("ℹ️ 此为持久化的旧版初判（仅可写模式由 generate_ai_for 写入），"
+                   "与上方「AI 动态分（本次实验）」**不是同一来源**；二者均为 **AI 暂定·非人工确认**，"
+                   "护城河/管理层/能力圈以**人工复核**为准，AI 永不权威。")
+        if str(result.get("ai_model", "")).strip():
+            a1, a2, a3 = st.columns(3)
+            a1.metric("护城河（AI暂定）/10", _fmt(result.get("ai_moat_score")))
+            a2.metric("管理层（AI暂定）/10", _fmt(result.get("ai_management_score")))
+            a3.metric("置信度（confidence）", _fmt(result.get("ai_confidence")))
+            st.markdown(f"**AI 判断（ai_reason）**：{_fmt(result.get('ai_reason'))}")
+            st.markdown(f"**待补证据（evidence_needed）**：{_fmt(result.get('ai_evidence_needed'))}")
+            st.markdown("**需人工复核**：是")
+        else:
+            st.write("未生成（数据不足时不生成 AI 初判）。")
+    st.divider()
+
+    # ── ⑪完整研究卡片（折叠；复制/导出用）──
+    st.markdown("### 完整研究卡片")
     card = res.get("card_text") or ""
-    st.code(card, language="text")
-    st.caption("💡 点击代码框右上角的复制图标可一键复制全文；或展开下方文本框全选复制。")
-    with st.expander("展开纯文本（便于全选复制）"):
-        st.text_area("研究卡片文本", value=card, height=320, label_visibility="collapsed")
+    with st.expander("展开完整研究卡片（复制 / 导出用）", expanded=False):
+        st.code(card, language="text")
+        st.caption("💡 点击代码框右上角的复制图标可一键复制全文。")
     st.download_button("⬇ 下载研究卡片（Markdown）", data=card,
                        file_name=f"{canonical}_card.md", mime="text/markdown")
 
-    # 数据校验提示
+    # ── ⑫数据校验提示 ──
     if res.get("warnings"):
         with st.expander("数据校验提示（warnings）"):
             for w in res["warnings"]:
