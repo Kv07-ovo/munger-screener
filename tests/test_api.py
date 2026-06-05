@@ -1,8 +1,10 @@
 # API 闭环回归（unittest）：测试 api.adapters 这一框架无关核心层。
 #
-# 设计：不依赖 FastAPI / httpx / TestClient（本环境未装 FastAPI、httpx）。
-#   真正的 API 逻辑在 api/adapters.py，是纯函数 -> 直接单测即可全面覆盖 Phase 2 要求。
-#   api/main.py 只是把这些函数挂到 /health 与 /api/research，故另有一个「app 能构建且路由齐全」的轻量检查。
+# 两层覆盖：
+#   1) TestResearchApi  —— 直接单测框架无关核心 api/adapters.py（纯函数，无需 web 框架 / HTTP）。
+#   2) TestResearchHttp —— 经 starlette.testclient.TestClient 端到端测真实 ASGI app 的 HTTP 路由：
+#      离线、不起 uvicorn；装了 fastapi 时 app 即 FastAPI 实例，验证的就是 FastAPI 路由行为。
+#      该类需 httpx（见 requirements-api.txt），缺失则 skip，不影响其余测试全绿。
 # 仅当本机装有 pandas 时运行（research_service 依赖 pandas）；否则整文件 skip。
 import json
 import os
@@ -13,6 +15,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 HAS_PANDAS = importlib.util.find_spec("pandas") is not None
+HAS_HTTPX = importlib.util.find_spec("httpx") is not None
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _STOCKS_CSV = os.path.join(_ROOT, "data", "stocks.csv")
 
@@ -85,6 +88,64 @@ class TestResearchApi(unittest.TestCase):
                 paths.add(p)
         self.assertIn("/health", paths)
         self.assertIn("/api/research", paths)
+
+
+@unittest.skipUnless(HAS_PANDAS and HAS_HTTPX, "需要 pandas + httpx（TestClient 端到端）")
+class TestResearchHttp(unittest.TestCase):
+    """经 TestClient 真实走一遍 ASGI app 的 HTTP 路由（离线、不起 uvicorn、可重复）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        from starlette.testclient import TestClient   # httpx 驱动；对 FastAPI/Starlette app 通用
+        from api import main
+        cls.client = TestClient(main.app)
+        cls.backend = getattr(main, "BACKEND", "?")
+
+    def test_health_http(self):
+        r = self.client.get("/health")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json(), {"ok": True})
+
+    def test_research_aapl_http(self):
+        r = self.client.get("/api/research", params={"ticker": "AAPL"})
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("application/json", r.headers.get("content-type", ""))
+        d = r.json()
+        self.assertEqual(d["ticker"], "AAPL")
+        self.assertIn(d["state"], ("complete", "pending", "insufficient_data"))
+        # 成功态：锁定稳定不变量，不锁脆弱长文本
+        if d["ok"] and d.get("total_score") is not None:
+            self.assertEqual(d["canonical"], "AAPL")
+            self.assertTrue(isinstance(d.get("company_name"), str) and d["company_name"])
+            self.assertEqual(d["final_score_preview"], d["total_score"])  # AI 不参与正式分
+
+    def test_invalid_ticker_http(self):
+        r = self.client.get("/api/research", params={"ticker": "ZZZ!!!"})
+        self.assertEqual(r.status_code, 200)
+        d = r.json()
+        self.assertFalse(d["ok"])
+        self.assertEqual(d["state"], "invalid_ticker")
+        self.assertIn("message", d)
+
+    def test_missing_ticker_http(self):
+        # 不带 ticker 参数 -> 空串 -> 结构化 invalid_ticker（200，不崩）
+        r = self.client.get("/api/research")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["state"], "invalid_ticker")
+
+    def test_lowercase_ticker_normalized_http(self):
+        # 小写 ticker 规范化：aapl 若被识别，canonical 应为大写 AAPL（守卫式断言，不脆弱）
+        r = self.client.get("/api/research", params={"ticker": "aapl"})
+        self.assertEqual(r.status_code, 200)
+        d = r.json()
+        if d.get("ok"):
+            self.assertEqual(d["canonical"], "AAPL")
+
+    def test_uses_fastapi_when_available_http(self):
+        # 装了 requirements-api.txt 时应跑在 FastAPI（非 Starlette 应急回退）
+        import importlib.util
+        if importlib.util.find_spec("fastapi") is not None:
+            self.assertEqual(self.backend, "fastapi")
 
 
 if __name__ == "__main__":
