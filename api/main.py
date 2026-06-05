@@ -10,9 +10,35 @@ are HTTP 200 with a structured body; the frontend reads the `ok` flag (errors ne
 """
 from __future__ import annotations
 
+import os
+
 from api import adapters
 
-_ALLOW_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+# CORS：本地默认放行 Vite 5173；线上经环境变量 ALLOWED_ORIGINS（逗号分隔）配置；绝不放开到 "*"。
+_LOCAL_DEFAULT_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+
+def _parse_allowed_origins(raw: str | None = None) -> list[str]:
+    """解析允许的前端来源（CORS allow_origins）。
+      - 逗号分隔；去首尾空格、去空项、去重（保序）；
+      - 安全：丢弃通配 "*"（绝不把 CORS 放开到任意来源）；
+      - 为空（未设 / 空串 / 只有空格逗号 / 仅 "*"）→ 回退本地默认（localhost+127.0.0.1:5173）。
+    例：ALLOWED_ORIGINS="https://your-frontend.vercel.app, https://your-custom-domain.com"
+    """
+    if raw is None:
+        raw = os.getenv("ALLOWED_ORIGINS", "")
+    seen, out = set(), []
+    for part in str(raw).split(","):
+        o = part.strip()
+        if not o or o == "*":
+            continue
+        if o not in seen:
+            seen.add(o)
+            out.append(o)
+    return out or list(_LOCAL_DEFAULT_ORIGINS)
+
+
+_ALLOW_ORIGINS = _parse_allowed_origins()
 
 try:  # ---- preferred: FastAPI (install with: .venv/bin/pip install fastapi) ----
     from fastapi import FastAPI

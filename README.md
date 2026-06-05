@@ -57,6 +57,10 @@ curl "http://localhost:8000/api/research?ticker=AAPL"
 
 - `api/main.py` 优先使用 FastAPI；装好 `requirements-api.txt` 后即以 FastAPI 运行（未装时回退 Starlette，仅应急）。
 - Windows 下把 `./.venv/bin/python` 换成 `.venv\Scripts\python`。
+- **CORS / 跨域**：后端从环境变量 `ALLOWED_ORIGINS`（逗号分隔）读取允许的前端来源，**未设时回退本地默认** `http://localhost:5173` 与 `http://127.0.0.1:5173`，**绝不使用 `*`**。线上部署示例（在平台环境变量面板设置，参见根目录 `.env.example`）：
+  ```bash
+  ALLOWED_ORIGINS=https://your-frontend.vercel.app,https://your-custom-domain.com
+  ```
 
 ### 前端（React + Vite）本地启动
 

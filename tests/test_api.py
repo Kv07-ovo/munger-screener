@@ -148,5 +148,51 @@ class TestResearchHttp(unittest.TestCase):
             self.assertEqual(self.backend, "fastapi")
 
 
+@unittest.skipUnless(
+    HAS_PANDAS and (importlib.util.find_spec("fastapi") is not None
+                    or importlib.util.find_spec("starlette") is not None),
+    "需要 pandas + (fastapi 或 starlette) 才能 import api.main")
+class TestCorsOrigins(unittest.TestCase):
+    """CORS 来源 env 化解析：去空格/空项、去重保序、丢 '*'、空回退本地默认。"""
+
+    def _parse(self, raw):
+        from api import main
+        return main._parse_allowed_origins(raw)
+
+    _LOCAL = ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+    def test_empty_falls_back_to_local_defaults(self):
+        self.assertEqual(self._parse(""), self._LOCAL)
+        self.assertEqual(self._parse("   "), self._LOCAL)
+        self.assertEqual(self._parse(",, , "), self._LOCAL)
+
+    def test_parses_comma_separated(self):
+        self.assertEqual(
+            self._parse("https://a.vercel.app,https://b.com"),
+            ["https://a.vercel.app", "https://b.com"])
+
+    def test_strips_whitespace_and_empty_items(self):
+        self.assertEqual(
+            self._parse("  https://a.com , , https://b.com  "),
+            ["https://a.com", "https://b.com"])
+
+    def test_drops_wildcard(self):
+        # 仅 '*' → 回退本地默认；混入 '*' → 丢弃 '*' 保留其余
+        self.assertEqual(self._parse("*"), self._LOCAL)
+        self.assertEqual(self._parse("https://a.com, *"), ["https://a.com"])
+
+    def test_dedup_preserves_order(self):
+        self.assertEqual(
+            self._parse("https://a.com, https://a.com, https://b.com"),
+            ["https://a.com", "https://b.com"])
+
+    def test_default_reads_env_when_unset(self):
+        # raw=None 时读 os.getenv；测试环境未设 ALLOWED_ORIGINS → 本地默认
+        import os
+        if not os.getenv("ALLOWED_ORIGINS"):
+            from api import main
+            self.assertEqual(main._parse_allowed_origins(), self._LOCAL)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
