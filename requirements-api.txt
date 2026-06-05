@@ -1,0 +1,13 @@
+# 后端 API（FastAPI）开发/运行依赖
+# 安装： ./.venv/bin/python -m pip install -r requirements-api.txt
+#
+# 说明：
+#   - api/main.py 优先使用 FastAPI；未安装时回退 Starlette（仅应急、不推荐长期）。
+#     安装本文件后，后端以 FastAPI 运行（api.main.BACKEND == "fastapi"）。
+#   - 核心评分依赖见 requirements.txt（pandas 等）；Streamlit 旧版见 requirements-web.txt。
+#   - httpx 供 FastAPI/Starlette TestClient 与本地冒烟测试使用。
+#   - 只读 API：不写 CSV、不改评分逻辑。
+
+fastapi
+uvicorn[standard]
+httpx
