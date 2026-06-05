@@ -22,3 +22,13 @@ research_notes/*_card.md
 # v2.4.0：密钥/隐私（如 Tushare token 等），永不入库
 .env
 *.env
+
+# Web 前端（React/Vite）：依赖与构建产物不入库
+web_frontend/node_modules/
+web_frontend/dist/
+
+# 设计稿与本地草稿，永不入库（视觉真值，仅本地参考）
+移动端7/
+桌面端6/
+screen.png
+backups/

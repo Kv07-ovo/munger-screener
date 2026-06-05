@@ -1,0 +1,43 @@
+/* Design tokens extracted from the Stitch examples (移动端7/kv_1 + 桌面端6/kv_3 code.html
+   and aura_logic/DESIGN.md). These are the visual source of truth. Dark mode intentionally
+   deferred this round (Phase 4) — examples are light-only. */
+:root {
+  /* surfaces / text */
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f5f3f3;
+  --ink: #111111;
+  --muted: #6b7280;
+  --line: #e5e5ea;
+  --line-strong: #d1d1d6;
+  --accent: #6e56cf;
+
+  /* command bar */
+  --input-bg: #ffffff;
+  --input-border: #e5e5ea;
+  --input-ph: #9ca3af;
+  --search-icon: #aeaeb2;
+  --button-bg: #ffffff;
+
+  /* chips */
+  --chip-bg: #fbf9f9;
+  --chip-border: #e3e2e2;
+  --chip-text: #444748;
+
+  /* warm / warning (kv_6 / kv_1 desktop warm card) */
+  --warning-bg: #fbf9f4;
+  --warning-line: #eeebe3;
+
+  /* shape / depth */
+  --radius-pill: 9999px;
+  --radius-card: 16px;
+  --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.04);
+  --shadow-focus: 0 4px 16px rgba(0, 0, 0, 0.06);
+
+  /* layout */
+  --max-width: 600px;        /* desktop home content column (kv_3) */
+  --pad-mobile: 32px;        /* kv_1 <main> px-[32px] */
+
+  --font: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display',
+          'PingFang SC', 'Noto Sans SC', system-ui, sans-serif;
+}
