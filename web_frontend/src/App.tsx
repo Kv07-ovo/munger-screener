@@ -36,10 +36,13 @@ export default function App() {
     <div className="page">
       <Header />
       <main className={idle ? 'home' : 'home has-result'}>
-        <section className="hero">
-          <h1>你好，User</h1>
-          <p className="hero-sub">这里是 Kv的选股小猫</p>
-        </section>
+        {/* 首页 Hero 仅初始态显示；loading/done/error 结果态隐藏，主视觉收敛到搜索栏 + 结果卡 */}
+        {idle && (
+          <section className="hero">
+            <h1>你好，User</h1>
+            <p className="hero-sub">这里是 Kv的选股小猫</p>
+          </section>
+        )}
 
         <SearchBar
           value={ticker}

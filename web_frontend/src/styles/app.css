@@ -89,6 +89,8 @@ html, body {
   padding: 0 4px;
 }
 .cmd-input::placeholder { color: var(--input-ph); opacity: 1; }
+/* 结果态：搜索栏紧贴顶部（首页 Hero 已隐藏），主视觉收敛到结果区 */
+.home.has-result .cmdbar { margin-top: 0; }
 
 .cat-btn {
   flex: 0 0 40px;
@@ -202,7 +204,7 @@ html, body {
 /* ===== Desktop (>=681px): landing-style centered home (kv_3); flow down once a result shows ===== */
 @media (min-width: 681px) {
   .home { justify-content: center; padding-top: 0; padding-bottom: 8vh; }
-  .home.has-result { justify-content: flex-start; padding-top: 6vh; padding-bottom: 0; }
+  .home.has-result { justify-content: flex-start; padding-top: 4vh; padding-bottom: 6vh; }
 }
 
 /* ===== Mobile (<=680px): align to 移动端7/kv_1 ===== */
