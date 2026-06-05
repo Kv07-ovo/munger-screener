@@ -32,3 +32,9 @@ web_frontend/dist/
 桌面端6/
 screen.png
 backups/
+
+# 本地 Claude 技能产物（安装的技能包与锁文件，类似 node_modules）。
+# 不忽略整个 .claude/；.claude/agents/*.md 暂保留，后续再决定是否入库。
+.agents/
+.claude/skills/
+skills-lock.json
