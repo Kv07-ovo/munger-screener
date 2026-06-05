@@ -10,6 +10,7 @@ html, body {
 
 .page {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
 }
@@ -47,6 +48,16 @@ html, body {
   padding: 6vh 24px 0;
   display: flex;
   flex-direction: column;
+}
+
+/* Results state: desktop dashboard width override */
+.home.has-result {
+  max-width: 1120px;
+}
+.home.has-result .cmdbar {
+  max-width: 680px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 /* Hero: desktop 48px bold centered (kv_3) */
@@ -130,6 +141,40 @@ html, body {
 .loading-title { margin: 0; font-size: 15px; color: var(--ink); }
 .loading-sub { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
 
+/* Loading skeleton: 低调骨架，shimmer 仅在允许动效时运行（reduced-motion 下静止）*/
+.sk-card {
+  margin-top: 16px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.sk-bar {
+  height: 12px;
+  border-radius: 6px;
+  background-color: var(--surface-2);
+  background-image: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.045), transparent);
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: sk-shimmer 1.4s ease-in-out infinite;
+}
+.sk-name { width: 38%; height: 16px; }
+.sk-score { width: 96px; height: 40px; border-radius: 10px; margin-bottom: 4px; }
+.sk-line-1 { width: 100%; }
+.sk-line-2 { width: 80%; }
+.sk-line-3 { width: 55%; }
+@keyframes sk-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sk-bar { animation: none; }
+}
+
 /* ===== Result / state cards (kv_4 result, kv_3 error, kv_7 nodata) ===== */
 .state-block { margin-top: 24px; display: flex; flex-direction: column; gap: 12px; }
 .result-card {
@@ -210,13 +255,446 @@ html, body {
 /* ===== Mobile (<=680px): align to 移动端7/kv_1 ===== */
 @media (max-width: 680px) {
   .home { padding: 16px var(--pad-mobile) 0; max-width: none; }
+  /* 顶部 safe-area：仅 header 用裸 env() 内缩（env=0 时为 0 → 首页顶部恢复正常、无白块；
+     有刘海时把品牌/导航顶到状态栏下方）。正常文档流、无 fixed、无 64/72 地板、无遮罩。 */
+  .app-header { padding-top: env(safe-area-inset-top); padding-left: var(--pad-mobile); padding-right: var(--pad-mobile); }
   .hero { text-align: left; }
-  .hero h1 { font-size: 32px; font-weight: 600; }     /* kv_1: 32px semibold */
-  .hero-sub { font-size: 14px; }                       /* kv_1: 14px #6B7280 */
-  .cmdbar { height: 50px; padding: 0 6px 0 14px; }     /* kv_1: 50px pill */
-  .search-icon { flex: 0 0 20px; color: var(--search-icon); }
-  .cmd-input { font-size: 13px; }                      /* kv_1: 13px */
-  .cat-btn { flex: 0 0 38px; width: 38px; height: 38px; }  /* kv_1: 38px */
+  .hero h1 { font-size: 32px; font-weight: 600; }
+  .hero-sub { font-size: 14px; }
+  .cmdbar { height: 50px; padding: 0 6px 0 14px; }
+  .search-icon { flex: 0 0 20px; }
+  .cmd-input { font-size: 16px; }
+  .cat-btn { flex: 0 0 38px; width: 38px; height: 38px; }
   .chips { flex-wrap: nowrap; overflow-x: auto; }
   .disclaimer { max-width: none; text-align: left; }
+}
+
+/* ===== ===== */
+/* ResultPreview two-column result page (MVP) */
+
+/* Result header: ticker left, badge right */
+.rp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 0 4px;
+}
+.rp-header-left {}
+
+/* Main grid: mobile 1-col, desktop 1fr 0.9fr 但左侧主导 */
+.result-page {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+  margin-top: 8px;
+}
+.result-main {}
+.result-side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Left column head */
+.rp-head { margin-bottom: 4px; }
+.rp-ticker {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.2;
+  margin: 0;
+}
+.rp-sub {
+  font-size: 14px;
+  color: var(--muted);
+  margin: 2px 0 0;
+}
+
+/* Reusable card */
+.rp-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 20px;
+  box-shadow: var(--shadow-soft);
+}
+.rp-card-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.rp-card-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+/* Score card */
+.rp-score-card { text-align: center; padding: 28px 20px; }
+.rp-score-top {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.rp-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+}
+.rp-badge.is-ok {
+  background: #eef2ff;
+  color: #4338ca;
+}
+.rp-badge.is-pending {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.rp-score {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+}
+.rp-score-num {
+  font-size: 64px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--ink);
+}
+.rp-score-max {
+  font-size: 18px;
+  color: var(--muted);
+}
+.rp-score-cap {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.rp-score-empty {
+  margin-top: 4px;
+  padding: 0;
+  color: var(--muted);
+}
+
+/* Priority */
+.rp-priority {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-top: 2px;
+}
+.rp-note {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.55;
+  margin: 4px 0 0;
+}
+
+/* Strengths/Risks 2-col */
+.rp-sr-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.rp-sr-grid .rp-card { margin-top: 0; }
+
+/* Accordions */
+.rp-accordions {
+  margin-top: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rp-acc {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 14px 18px;
+  box-shadow: var(--shadow-soft);
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.rp-acc::-webkit-details-marker { display: none; }
+.rp-acc summary { list-style: none; display: flex; align-items: center; justify-content: space-between; width: 100%; cursor: pointer; }
+.rp-acc summary::-webkit-details-marker { display: none; }
+.rp-acc summary > span { flex: 1; }
+.rp-chevron { transition: transform .2s; color: var(--muted); }
+.rp-acc[open] .rp-chevron { transform: rotate(180deg); }
+.rp-acc-body { padding-top: 12px; }
+
+/* 「展开完整分析」折叠容器：移动端折叠；桌面端由 >=900 媒体查询强制展开为右侧栏 */
+.rp-full { width: 100%; }
+.rp-full-sum {
+  list-style: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card);
+  padding: 14px 18px; font-size: 14px; font-weight: 600; color: var(--ink);
+  box-shadow: var(--shadow-soft);
+}
+.rp-full-sum::-webkit-details-marker { display: none; }
+.rp-full-sum > span { flex: 1; }
+.rp-full[open] .rp-full-sum .rp-chevron { transform: rotate(180deg); }
+.rp-full[open] > .rp-full-body { display: flex; flex-direction: column; gap: 14px; padding-top: 12px; }
+
+/* Side panel */
+.rp-status-main { font-size: 16px; font-weight: 600; color: var(--ink); }
+.rp-status-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+.rp-kv-list { }
+.rp-kv {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.rp-kv:last-child { border-bottom: none; }
+.rp-kv-k { font-size: 13px; color: var(--muted); }
+.rp-kv-v { font-size: 14px; font-weight: 600; color: var(--ink); }
+.rp-kv-final { padding-top: 10px; margin-top: 4px; border-top: 1px solid var(--line); border-bottom: none; }
+.rp-kv-score { font-size: 20px; font-weight: 700; color: var(--ink); }
+
+/* Financial grid */
+.rp-fin-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.rp-fin {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: var(--shadow-soft);
+}
+.rp-fin.is-missing {
+  border: 1px dashed var(--line-strong);
+  background: var(--surface-2);
+  box-shadow: none;
+}
+.rp-fin-label {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.rp-fin-val {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.rp-disclaimer {
+  margin: 20px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* ===== Desktop dashboard (>=900px) ===== */
+@media (min-width: 900px) {
+  .result-page {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 390px);
+    gap: 28px;
+  }
+  .rp-header {
+    grid-column: 1 / -1;
+    padding-bottom: 8px;
+  }
+  .rp-ticker { font-size: 32px; }
+  .rp-sub { font-size: 15px; }
+  .rp-score-num { font-size: 80px; }
+  .rp-score-max { font-size: 20px; }
+  .rp-score-card { padding: 32px 20px; }
+  .rp-sr-grid { grid-template-columns: 1fr 1fr; }
+  /* 桌面端：折叠入口隐藏；details 由 React open={!isMobile} 原生展开，右侧栏维持原样 */
+  .rp-full > .rp-full-sum { display: none; }
+  .rp-full[open] > .rp-full-body { padding-top: 0; }
+}
+
+/* ===== 移动端结果信息架构（rp-m-*）：无条件 base 样式 =====
+   关键：rp-m DOM 由 JS（isMobile matchMedia）控制渲染，故样式【不放进 @media】，
+   避免「JS 已渲染移动树、CSS 因 @media 不匹配未套上 → 整块裸文本」。
+   卡片成形属性用字面值（即使 CSS 变量未加载也能成卡片）；文字色用 var() + 兜底色。 */
+/* iOS 风格圆角 token（仅 rp-m 移动端卡片使用；rp-m 元素只在移动端渲染 → 等效 mobile-only，
+   桌面端圆角体系 --radius-* 不受影响）。稳定 CSS 近似 Apple 连续曲率：大圆角 + overflow 裁切。 */
+:root {
+  --ios-radius-xl: 30px; --ios-radius-lg: 26px; --ios-radius-md: 22px;
+  --ios-radius-sm: 16px; --ios-radius-pill: 9999px;
+}
+.rp-m { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+/* 卡片：轻 border + 近乎无阴影 + 连续感圆角；overflow 裁切连续角；外层大、内层小 */
+.rp-m-hero, .rp-m-card, .rp-m-full {
+  border: 1px solid rgba(0, 0, 0, 0.11);
+  overflow: hidden; background-clip: padding-box; box-shadow: none; background: #ffffff;
+}
+.rp-m-hero { border-radius: var(--ios-radius-xl); }      /* Hero 30px */
+.rp-m-full { border-radius: 28px; }                       /* 完整分析入口轻一档 */
+.rp-m-card { border-radius: var(--ios-radius-lg); }       /* 普通卡 26px */
+
+/* Compact hero：精致比例（高度约 195-220px，≤240）；Ticker/评分克制，其余轻 */
+.rp-m-hero { padding: 20px 18px; display: flex; flex-direction: column; gap: 4px; }
+.rp-m-hero-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+/* 顶部卡内徽章在移动端减重：次要信息不抢视觉 */
+.rp-m-hero .rp-badge { font-weight: 500; }
+.rp-m-ticker { font-size: 44px; font-weight: 700; letter-spacing: -0.03em; color: var(--ink, #111111); line-height: 1.02; }
+.rp-m-sub { font-size: 13px; font-weight: 400; color: var(--muted); }
+/* 评分小标题（给移动端 hero 的裸数字一个语境）*/
+.rp-m-score-label { font-size: 13px; font-weight: 600; color: var(--muted); margin-top: 10px; }
+/* 评分：主数字强视觉（60/700），「/100」更轻灰，构成平衡的 Apple 感比例 */
+.rp-m-score { display: flex; align-items: baseline; gap: 8px; margin-top: 2px; }
+.rp-m-score-num { font-size: 60px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; color: var(--ink, #111111); }
+.rp-m-score-max { font-size: 30px; font-weight: 400; color: var(--muted); }
+.rp-m-score-na { font-size: 18px; font-weight: 600; color: var(--muted, #6b7280); }
+/* 研究优先级（最终结论）：主结论强视觉一行，括注 + 免责下沉为灰色小字 */
+.rp-m-prio { display: flex; flex-direction: column; gap: 2px; margin-top: 12px; }
+.rp-m-prio-main { font-size: 18px; font-weight: 600; line-height: 1.3; color: var(--ink); }
+.rp-m-prio-meta { font-size: 12px; font-weight: 400; color: var(--muted); }
+/* 数据状态 pill（完整 / 待补录）已随 hero badge 共享为中性灰，此处不重复放大 */
+
+/* Hero 洞察：信息标签（细边框 + 透明底，去黑度增呼吸），非临时按钮；圆点区分优势/风险 */
+.rp-m-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.rp-m-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 400; line-height: 1.4; padding: 4px 11px; border-radius: var(--ios-radius-pill); background: transparent; border: 1px solid var(--line); color: var(--text); }
+.rp-m-chip::before { content: ''; flex: 0 0 5px; width: 5px; height: 5px; border-radius: 9999px; }
+.rp-m-chip.up::before { background: var(--accent, #6e56cf); }
+.rp-m-chip.down::before { background: var(--muted, #9ca3af); }
+
+/* 优势 / 风险完整列表（现仅出现在「完整分析」内）*/
+.rp-m-list { list-style: none; margin: 0; padding: 0; }
+.rp-m-list li { position: relative; padding-left: 16px; font-size: 15px; font-weight: 400; line-height: 1.6; color: var(--text, #1f2328); margin: 5px 0; }
+.rp-m-list li::before { content: ''; position: absolute; left: 3px; top: 10px; width: 6px; height: 6px; border-radius: 9999px; }
+.rp-m-list.up li::before { background: var(--accent, #6e56cf); }
+.rp-m-list.down li::before { background: var(--muted, #6b7280); }
+.rp-m-empty { font-size: 14px; font-weight: 400; color: var(--muted, #6b7280); margin: 0; }
+
+/* 唯一折叠：完整分析（自定义 details，彻底去掉浏览器默认黑三角）*/
+.rp-m-full { width: 100%; }
+.rp-m-full > summary { list-style: none; }
+.rp-m-full > summary::-webkit-details-marker { display: none; }
+.rp-m-full > summary::marker { content: ""; }
+.rp-m-full-sum {
+  cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  min-height: 48px; padding: 0 16px;
+  font-size: 15px; font-weight: 500; color: var(--ink, #111111);
+}
+.rp-m-full-sum > span { flex: 1; }
+.rp-m-full-sum .rp-chevron { color: rgba(0, 0, 0, 0.28); transition: transform .2s; }
+.rp-m-full[open] .rp-m-full-sum { border-bottom: 1px solid rgba(0, 0, 0, 0.05); }
+.rp-m-full[open] .rp-m-full-sum .rp-chevron { transform: rotate(180deg); }
+/* 完整分析体：阅读型 sections，块间靠大留白分组，不画块线 */
+.rp-m-full-body { padding: 8px 18px 16px; display: flex; flex-direction: column; gap: 24px; }
+
+/* section：标题为灰色小标（13/600 muted），正文为阅读正文（15/400/1.6）*/
+.rp-m-block { padding: 0; border-bottom: none; }
+.rp-m-block-t { display: block; font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 8px; }
+.rp-m-block-b { display: block; font-size: 15px; font-weight: 400; color: var(--text, #1f2328); line-height: 1.6; }
+.rp-m-ai { font-weight: 400; }
+/* 数据状态：浅色信息行，弱于正文重点 */
+.rp-m-statusline { margin: 0; font-size: 13px; font-weight: 400; color: var(--muted); line-height: 1.55; }
+/* 说明：最末脚注，最小最灰，不与结论同权重 */
+.rp-m-foot { margin: 6px 0 0; font-size: 12px; font-weight: 400; color: var(--muted); line-height: 1.55; }
+
+/* 完整分析内 list row（辅助评分 / 核心财务）：保留 row 结构但 label 轻、value 强；行线极淡 */
+.rp-m-rows { display: flex; flex-direction: column; }
+.rp-m-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 32px; padding: 2px 0; border-bottom: 1px solid var(--hairline-faint); }
+.rp-m-row:last-child { border-bottom: none; }
+.rp-m-k { font-size: 14px; font-weight: 500; color: var(--muted, #6b7280); }
+.rp-m-v { font-size: 15px; font-weight: 600; color: var(--ink, #111111); }
+.rp-m-v.is-na { font-size: 14px; font-weight: 400; color: var(--muted); }
+
+/* 以上 .rp-m-* 报表样式已弃用：移动端结果改由下方 .mrv-* 阅读型摘要渲染，
+   桌面端用 .rp-* / 状态卡用 .result-card，均不再引用 .rp-m-*（死样式，可后续清理）。 */
+
+/* ===== 移动端结果：阅读型研究摘要（mrv-*，取代旧 rp-m 报表结构）=====
+   单张白卡：顶部结论 + 一句话结论 + 为什么值得看 + 需要注意 + 关键数据 + 数据口径。
+   强字重仅 ticker(800) / 主分数(800) / 研究优先级(700)；其余 ≤600。
+   无 key-value 表、无每行分割线、无圆点 dump。mrv DOM 由 JS(isMobile) 控制渲染，等效 mobile-only。 */
+.mrv { margin-top: 14px; }
+.mrv-card {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: var(--ios-radius-lg);
+  padding: 16px;
+  box-shadow: none;
+}
+
+/* 1) 顶部结论卡：强视觉仅 ticker / 分数 / 研究优先级 */
+.mrv-id { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.mrv-ticker { font-size: 40px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.02; color: var(--ink, #111111); }
+.mrv-pill { flex: 0 0 auto; margin-top: 6px; font-size: 11px; font-weight: 500; padding: 2px 10px; border-radius: var(--ios-radius-pill); background: transparent; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.mrv-name { font-size: 13px; font-weight: 400; color: var(--muted); margin-top: 4px; }
+.mrv-score-label { font-size: 12px; font-weight: 500; color: var(--muted); margin-top: 8px; }
+.mrv-score { display: flex; align-items: baseline; gap: 8px; margin-top: 2px; }
+.mrv-score-num { font-size: 50px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; color: var(--ink, #111111); }
+.mrv-score-max { font-size: 26px; font-weight: 500; color: var(--muted); }
+.mrv-score-na { font-size: 17px; font-weight: 600; color: var(--muted, #6b7280); }
+.mrv-prio { font-size: 18px; font-weight: 700; line-height: 1.3; color: var(--ink, #111111); margin-top: 10px; }
+.mrv-prio-meta { font-size: 12px; font-weight: 400; color: var(--muted); margin-top: 3px; }
+.mrv-keychips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.mrv-chip { font-size: 13px; font-weight: 500; color: var(--muted); padding: 4px 11px; border: 1px solid var(--hairline-faint); border-radius: var(--ios-radius-pill); white-space: nowrap; }
+
+/* 卡内唯一分隔：结论与正文之间一条浅线（非每行）*/
+.mrv-divider { height: 1px; background: var(--hairline); margin: 16px -18px 0; }
+
+/* 正文区：阅读型 sections，靠留白分组 */
+.mrv-body { display: flex; flex-direction: column; gap: 20px; padding-top: 18px; }
+.mrv-sec-t { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0 0 10px; }
+
+/* 2) 一句话结论 */
+.mrv-takeaway { margin: 0; font-size: 16px; font-weight: 500; line-height: 1.65; color: var(--text, #1f2328); }
+
+/* 3) 为什么值得看 / 4) 需要注意：阅读节奏，指标名 600 + 解释 400，无圆点、无分割线 */
+.mrv-reasons { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.mrv-reason { display: flex; flex-direction: column; gap: 2px; }
+.mrv-reason-lead { font-size: 15px; line-height: 1.55; color: var(--ink, #111111); }
+.mrv-reason-name { font-weight: 600; }
+.mrv-reason-val { font-weight: 500; }
+.mrv-reason-note { font-size: 14px; font-weight: 500; line-height: 1.5; color: var(--muted); }
+.mrv-reason-text { font-size: 15px; font-weight: 400; line-height: 1.6; color: var(--text, #1f2328); }
+.mrv-empty { margin: 0; font-size: 15px; font-weight: 400; line-height: 1.6; color: var(--muted); }
+
+/* 5) 关键数据：label/value 瓦片网格（非 key-value 表，无分割线）*/
+.mrv-data-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.mrv-tile { display: flex; flex-direction: column; gap: 3px; }
+.mrv-tile-k { font-size: 13px; font-weight: 500; color: var(--muted); }
+.mrv-tile-v { font-size: 18px; font-weight: 600; color: var(--ink, #111111); letter-spacing: -0.01em; }
+
+/* 6) 数据口径 */
+.mrv-source { margin: 22px 0 0; font-size: 12px; font-weight: 400; line-height: 1.55; color: var(--muted); }
+
+/* ===== Mobile (<=680px)：仅放与共享/首页元素相关的覆盖（非 rp-m 专用样式）===== */
+@media (max-width: 680px) {
+  :root { --pad-mobile: 20px; }
+  /* 移动端弱化右侧滚动条（仅 mobile，桌面不受影响）：避免调试页观感 */
+  html, body { scrollbar-width: none; -ms-overflow-style: none; }
+  ::-webkit-scrollbar { display: none; width: 0; height: 0; }
+  /* flex:0 → 内容不被拉伸，免责声明紧跟「完整分析」卡片后面，而非漂在屏幕底部中央 */
+  .home { max-width: none; flex: 0 0 auto; }
+  .home.has-result { max-width: none; padding: 14px var(--pad-mobile) 0; }
+  .home.has-result .cmdbar { max-width: none; margin-left: 0; margin-right: 0; }
+  /* 底部 safe-area：真实滚动容器=文档；在内容层 .page 加大底部留白（180px），数据口径/免责声明
+     不被 Safari 底部地址栏遮。顶部不在 .page 加 padding（已撤掉 64px 地板与白色遮罩），交由 .app-header 的 env() 处理。 */
+  .page {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 180px);
+  }
+
+  .disclaimer { margin-top: 24px; text-align: left; font-size: 12px; color: var(--muted); }
+  /* 共享状态卡（loading / 错误 / 数据不足）：连续感圆角 + 去阴影 */
+  .result-card { border-radius: var(--ios-radius-lg); box-shadow: none; border-color: rgba(0, 0, 0, 0.07); }
 }

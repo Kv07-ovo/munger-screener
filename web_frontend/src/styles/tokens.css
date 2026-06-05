@@ -3,19 +3,22 @@
    deferred this round (Phase 4) — examples are light-only. */
 :root {
   /* surfaces / text */
-  --bg: #ffffff;
+  --bg: #fbfaf7;
   --surface: #ffffff;
   --surface-2: #f5f3f3;
   --ink: #111111;
+  --text: #1f2328;
   --muted: #6b7280;
   --line: #e5e5ea;
   --line-strong: #d1d1d6;
+  --hairline: rgba(0, 0, 0, 0.08);
+  --hairline-faint: rgba(0, 0, 0, 0.05);
   --accent: #6e56cf;
 
   /* command bar */
   --input-bg: #ffffff;
   --input-border: #e5e5ea;
-  --input-ph: #9ca3af;
+  --input-ph: #6b7280;
   --search-icon: #aeaeb2;
   --button-bg: #ffffff;
 
