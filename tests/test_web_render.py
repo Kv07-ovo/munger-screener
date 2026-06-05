@@ -16,6 +16,9 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 HAS_PANDAS = importlib.util.find_spec("pandas") is not None
+HAS_PIL = importlib.util.find_spec("PIL") is not None
+_TRANSPARENT_CAT = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "pixel_cat_cutout.png")
 
 
 class _Ctx:
@@ -245,13 +248,76 @@ class TestWebRender(unittest.TestCase):
         self.assertIn("待补录", text)
 
     def test_cat_asset_is_offline(self):
-        # 非谈判约束：小猫为内联 SVG data URI，绝不用远程 URL（离线、不联网）。
-        # 注意 SVG 含标准命名空间 xmlns="http://www.w3.org/2000/svg"——那是命名空间标识，
-        # 不是网络抓取；因此只锁「远程抓取」特征：https:// / src= / googleusercontent。
+        # 非谈判约束：小猫资源必须离线——本地 PNG（优先透明版）或内联 SVG（fallback）的 data URI，
+        # 绝不用远程 URL。注意 SVG 含命名空间 xmlns="http://www.w3.org/2000/svg"（非网络抓取），
+        # 故只锁「远程抓取」特征：https:// / src= / googleusercontent。
         web_app, _ = _load_web_app()
-        self.assertTrue(web_app._CAT_DATA_URI.startswith("data:image/svg+xml;base64,"))
+        self.assertTrue(web_app._CAT_DATA_URI.startswith(
+            ("data:image/png;base64,", "data:image/svg+xml;base64,")))
+        self.assertNotIn("googleusercontent", web_app._CAT_DATA_URI)
+        # 读取优先级：用户透明抠图优先、内联 SVG 兜底
+        self.assertEqual(web_app._CAT_PNG_CANDIDATES[0], "pixel_cat_cutout.png")
+        self.assertTrue(web_app._CAT_PNG_CANDIDATES[-1] != ""
+                        and len(web_app._CAT_PNG_CANDIDATES) >= 2)  # 仍有 fallback 候选
+        # SVG fallback 本身亦无远程抓取（命名空间 xmlns 除外）
         for needle in ("https://", "googleusercontent", "src="):
             self.assertNotIn(needle, web_app._CAT_SVG)
+
+    @unittest.skipUnless(HAS_PIL and os.path.exists(_TRANSPARENT_CAT),
+                         "需要 PIL 且 assets/pixel_cat_cutout.png 存在")
+    def test_transparent_cat_has_alpha(self):
+        # 防回退：当前小猫必须是带 alpha 的 PNG/WebP，且同时含全透明与全不透明像素（确为抠图、非方底）
+        from PIL import Image
+        img = Image.open(_TRANSPARENT_CAT)
+        self.assertIn(img.format, ("PNG", "WEBP"))
+        rgba = img.convert("RGBA")
+        alpha = rgba.getchannel("A")
+        lo, hi = alpha.getextrema()
+        self.assertEqual(lo, 0)     # 有全透明像素（背景已抠掉）
+        self.assertEqual(hi, 255)   # 有全不透明像素（猫主体保留）
+        # 透明/不透明像素数量均 > 0
+        hist = alpha.histogram()
+        self.assertGreater(hist[0], 0)     # transparent_pixels > 0
+        self.assertGreater(hist[255], 0)   # opaque_pixels > 0
+        # web_app 应选中该本地透明文件
+        web_app, _ = _load_web_app()
+        self.assertEqual(web_app._CAT_ASSET_NAME, "pixel_cat_cutout.png")
+        self.assertTrue(web_app._CAT_IS_LOCAL_PNG)
+
+    def test_dark_mode_css_present(self):
+        # 自适应深色模式：CSS 必须含 prefers-color-scheme: dark（纯 CSS、无 JS）
+        web_app, _ = _load_web_app()
+        self.assertIn("prefers-color-scheme: dark", web_app._CSS)
+
+    def test_heading_anchor_icon_hidden(self):
+        # 干净感：隐藏 Streamlit 给 heading 自动生成的锚点链条图标（只隐藏 anchor 容器，不动标题文字）
+        web_app, _ = _load_web_app()
+        self.assertIn('[data-testid="stHeaderActionElements"]', web_app._CSS)
+        self.assertIn("display: none", web_app._CSS)
+
+    def test_error_input_dark_text_override(self):
+        # P0：深色模式 + 错误态命令栏，浅暖底上输入文字必须可见
+        # —— 强制深色文字 + Safari -webkit-text-fill-color + 可见 placeholder + 光标颜色
+        web_app, _ = _load_web_app()
+        css = web_app._CMDBAR_ERROR_CSS
+        self.assertIn(".st-key-mg-cmdbar input", css)
+        self.assertIn("-webkit-text-fill-color", css)
+        self.assertIn("#111111", css)          # 深色输入文字
+        self.assertIn("caret-color", css)       # 光标不消失
+        self.assertIn("::placeholder", css)     # placeholder 可见
+        self.assertIn("#7A6A5A", css)           # 暖灰 placeholder
+
+    def test_i18n_basic(self):
+        # 中英双语：zh 默认、en 可切；未知 key 安全 fallback 不崩
+        web_app, _ = _load_web_app()
+        self.assertEqual(web_app._t("app_title", "zh"), "Kv的选股小猫")
+        self.assertEqual(web_app._t("app_title", "en"), "Kv's Stock Cat")
+        self.assertNotEqual(web_app._t("sec_score", "en"), web_app._t("sec_score", "zh"))
+        # 未知 key → 返回 key 本身（不抛异常）
+        self.assertEqual(web_app._t("___missing_key___"), "___missing_key___")
+        # zh 默认下，section 标题/metric label 仍是 test 锁定的中文（防 i18n 改默认）
+        self.assertEqual(web_app._t("sec_score"), "评分")
+        self.assertEqual(web_app._t("m_rule"), "规则总分")
 
 
 if __name__ == "__main__":
