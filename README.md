@@ -24,6 +24,71 @@
 
 ---
 
+## Web 架构与本地启动（React + FastAPI 为主线）
+
+项目分为四部分：
+
+- **评分核心 / CLI**：`scorer.py`、`ai_scorer.py`、`research_service.py`、`financial_analyzer.py` 等 + `data/*.csv`；命令行用法见下文「完整使用流程」。
+- **FastAPI 后端**（`api/`，**后续主线**）：只读研究接口，复用上面的评分核心；不写 CSV、不改评分逻辑。
+- **React + Vite 前端**（`web_frontend/`，**后续主线**）：调用 FastAPI，逐步按设计稿对齐 UI。
+- **Streamlit 旧版**（`web_app.py`，**legacy / 原型**）：保留可用，但不再作为主线开发方向。
+
+> 后续正式 Web 版本 = **React + FastAPI**；Streamlit 仅作为 legacy 原型保留，不删除、不破坏。
+
+### 后端（FastAPI）本地启动
+
+```bash
+# 1) 建/用虚拟环境（项目根目录）；已存在可跳过
+python -m venv .venv
+#   macOS/Linux 激活： source .venv/bin/activate
+#   Windows (PowerShell)： .venv\Scripts\Activate.ps1
+
+# 2) 安装核心依赖 + 后端 API 依赖
+./.venv/bin/python -m pip install -r requirements.txt
+./.venv/bin/python -m pip install -r requirements-api.txt
+
+# 3) 启动后端（默认 http://localhost:8000）
+./.venv/bin/python -m uvicorn api.main:app --reload --port 8000
+
+# 4) 健康检查 / 查询示例
+curl http://localhost:8000/health
+curl "http://localhost:8000/api/research?ticker=AAPL"
+```
+
+- `api/main.py` 优先使用 FastAPI；装好 `requirements-api.txt` 后即以 FastAPI 运行（未装时回退 Starlette，仅应急）。
+- Windows 下把 `./.venv/bin/python` 换成 `.venv\Scripts\python`。
+
+### 前端（React + Vite）本地启动
+
+```bash
+cd web_frontend
+npm install
+npm run dev          # 默认 http://localhost:5173
+```
+
+- 前端默认请求后端 `http://localhost:8000`。
+- 如需修改 API 地址：复制 `web_frontend/.env.example` 为 `web_frontend/.env`，设置 `VITE_API_BASE_URL`（`.env` 不入库）。
+
+### 测试
+
+```bash
+./.venv/bin/python -m unittest discover -s tests
+```
+
+### 常见问题（Web）
+
+- **`uvicorn: command not found`** → 没装 `requirements-api.txt`，或没用 `.venv`（请用 `./.venv/bin/python -m uvicorn ...`）。
+- **前端请求失败 / CORS** → 确认后端已在 8000 启动；检查 `VITE_API_BASE_URL` 是否指向正确地址。
+- **`npm install` 失败** → 确认已安装 Node.js / npm（`node -v`、`npm -v`）。
+- **不要提交**：`.env`、`web_frontend/node_modules/`、`web_frontend/dist/`、备份 CSV、任何密钥。
+
+### Git / 授权安全
+
+- GitHub 授权优先用 `gh auth login` + `gh auth setup-git`（浏览器设备流，凭据存系统 keyring）。
+- **不要**把 Personal Access Token / 密码 / 密钥写进 README、代码、commit 或聊天记录。
+
+---
+
 ## 按需查询任意股票（v2.2.0-alpha1）
 
 除了批量评分 watchlist，现在可以**直接查询任意股票代码**——本地没有就自动建档：
