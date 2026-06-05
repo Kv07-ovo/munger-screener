@@ -11,6 +11,35 @@ def _safe_float(val, default=0.0):
         return default
 
 
+def _safe_float_strict(val):
+    """严格转 float：None/空/占位/NaN/不可解析 → None（区别于 _safe_float 的 0.0 兜底）。
+    供 None-aware 动态评分（api/score_engine.py）区分「缺失」与「真实 0」。"""
+    if val is None:
+        return None
+    s = str(val).strip().lower()
+    if s in ("", "nan", "none", "n/a", "null", "unknown", "manual_pending", "未填写", "—"):
+        return None
+    try:
+        f = float(s)
+        return None if f != f else f
+    except (ValueError, TypeError):
+        return None
+
+
+def classify_debt_to_equity(raw):
+    """D/E 合法性分类，返回 (status, value)：
+      - 'missing'：None/空/不可解析 → 缺失，不给分、不计入分母；
+      - 'invalid'：de <= 0（负权益等异常）→ 按高风险，不给低负债分；
+      - 'ok'：de > 0 → 正常进入阶梯。
+    修复「MCD 负权益 D/E=-30.6 误判 de<=0.5 拿满分」「空 D/E 白送满分」两个 bug 的口径源头。"""
+    v = _safe_float_strict(raw)
+    if v is None:
+        return "missing", None
+    if v <= 0:
+        return "invalid", v
+    return "ok", v
+
+
 # ============================================================
 # 一、生意质量（30 分）
 # ============================================================
@@ -113,12 +142,16 @@ def score_growth(row):
 # ============================================================
 
 def score_balance_sheet(row):
-    """D/E比率(10) + FCF全正奖励(5) = 15"""
+    """D/E比率(10) + FCF全正奖励(5) = 15。
+    v(MVP)：D/E 缺失 / ≤0（负权益等异常）一律不给低负债分——修「负/空 D/E 误判满分」。"""
     score, detail = 0.0, {}
-    de  = _safe_float(row.get("debt_to_equity"))
+    de_status, de = classify_debt_to_equity(row.get("debt_to_equity"))
     fcy = int(_safe_float(row.get("fcf_positive_years")))
 
-    de_s = 10 if de <= 0.5 else 7 if de <= 1.0 else 3 if de <= 2.0 else 0
+    if de_status == "ok":
+        de_s = 10 if de <= 0.5 else 7 if de <= 1.0 else 3 if de <= 2.0 else 0
+    else:
+        de_s = 0   # missing / invalid(≤0)：不给低负债分
     score += de_s;  detail["负债率评分"] = de_s
 
     bonus = 5 if fcy >= 5 else 0
@@ -255,7 +288,8 @@ def score_stock(row):
     trend_score, trend_detail = calc_trend_score(row)
 
     raw_score   = q_score + moat_s + g_score + bs_score + val_score + mgmt_score
-    total_score = max(0.0, round(raw_score - risk_penalty, 2))
+    # v(MVP)：加上限保护，total_score 夹到 [0, 100]（防任何子维度溢出导致 >100）
+    total_score = round(min(100.0, max(0.0, raw_score - risk_penalty)), 2)
 
     return {
         # 基本信息

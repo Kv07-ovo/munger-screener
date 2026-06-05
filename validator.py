@@ -190,9 +190,21 @@ def validate_data(row):
     if fcf_yld > 30:
         warnings.append(f"FCF Yield异常({fcf_yld:.1f}%)：超过30%罕见，请核实")
 
-    if de > 3:
-        debt_reason = str(row.get("debt_reason", "")).strip()
-        reason_note = f"（{debt_reason}）" if debt_reason else ""
+    # D/E 风险（口径同 scorer.classify_debt_to_equity）：
+    #   缺失 → 交「关键字段缺失」逻辑，不在此判负债风险；
+    #   ≤0  → 异常/疑负权益（如 MCD=-30.6），不能视为低负债，按高风险提示；
+    #   >3  → 真实高杠杆（原逻辑）。
+    raw_de = row.get("debt_to_equity", "")
+    debt_reason = str(row.get("debt_reason", "")).strip()
+    reason_note = f"（{debt_reason}）" if debt_reason else ""
+    if _is_blank(raw_de):
+        pass
+    elif de <= 0:
+        warnings.append(
+            f"D/E异常({de:.1f}){reason_note}：≤0 疑似负权益（如回购致股东权益为负），"
+            f"不能视为低负债，请按高风险核实"
+        )
+    elif de > 3:
         warnings.append(
             f"D/E过高({de:.1f}){reason_note}：请检查是否由回购/轻资产/股东权益过低导致，"
             f"建议结合interest_coverage和net_debt_to_EBITDA综合评估"
@@ -289,8 +301,11 @@ def get_final_decision(result, row):
     data_mode = str(row.get("data_mode", "")).strip()
 
     # ── 硬性风险过滤（基于"确实存在"的数值；缺失的 de 默认 0 不会误触发）──
+    raw_de = row.get("debt_to_equity", "")
     if coc == "outside":          return "超出能力圈"
     if "fraud" in note_str or "造假" in note_str:  return "风险过高"
+    # 异常 D/E（≤0，疑负权益，如 MCD=-30.6）：仅在 present 时触发，缺失不误判为高负债
+    if not _is_blank(raw_de) and de <= 0:  return "风险过高"
     if de > 3:                    return "风险过高"
 
     # ── v2.1.0-alpha2：先区分"数据缺失" vs "公司差" ───────────────────
