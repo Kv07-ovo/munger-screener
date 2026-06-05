@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Header from './components/Header'
 import SearchBar from './components/SearchBar'
 import ExampleChips from './components/ExampleChips'
@@ -24,11 +24,30 @@ export default function App() {
       const data = await fetchResearch(t)
       setResult(data)
       setStatus('done')
-    } catch {
-      setErrorMsg('无法连接到后端，请确认 API 已启动（http://localhost:8000）')
+    } catch (raw) {
+      const msg = raw instanceof Error ? raw.message : String(raw)
+      if (/^HTTP_/i.test(msg)) {
+        const detail = msg.replace(/^HTTP_/i, '').replace(/_/g, ' ')
+        setErrorMsg(`后端返回错误：${detail}`)
+      } else if (raw instanceof TypeError || /fetch|NetworkError/i.test(msg)) {
+        setErrorMsg('无法连接到后端，请确认 API 已启动并允许当前前端地址访问（CORS）')
+      } else {
+        setErrorMsg('数据加载异常：后端返回格式可能异常，请稍后重试')
+      }
       setStatus('error')
     }
   }
+
+  // 深链接：?q=TICKER 进入页面即自动查询一次（便于分享结果 URL，也便于截图回归）。
+  // 用 ref 防止 StrictMode 开发态重复触发。
+  const deepLinkDone = useRef(false)
+  useEffect(() => {
+    if (deepLinkDone.current) return
+    deepLinkDone.current = true
+    const q = new URLSearchParams(window.location.search).get('q')
+    if (q && q.trim()) run(q)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const idle = status === 'idle'
 
@@ -39,8 +58,8 @@ export default function App() {
         {/* 首页 Hero 仅初始态显示；loading/done/error 结果态隐藏，主视觉收敛到搜索栏 + 结果卡 */}
         {idle && (
           <section className="hero">
-            <h1>你好，User</h1>
-            <p className="hero-sub">这里是 Kv的选股小猫</p>
+            <h1>找到值得深入研究的股票</h1>
+            <p className="hero-sub">输入股票代码，快速得到质量、估值与风险的研究优先级</p>
           </section>
         )}
 

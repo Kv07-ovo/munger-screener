@@ -42,12 +42,18 @@ export interface ResearchResult {
 
 export async function fetchResearch(ticker: string): Promise<ResearchResult> {
   const url = `${API_BASE}/api/research?ticker=${encodeURIComponent(ticker)}`
-  const res = await fetch(url)
-  if (!res.ok) {
-    // Backend returns 200 with a structured body; a non-2xx means transport failure.
-    throw new Error(`API ${res.status}`)
+  try {
+    const res = await fetch(url)
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new Error(`HTTP_${res.status}:${text.slice(0, 200)}`)
+    }
+    const data = (await res.json()) as ResearchResult
+    return data
+  } catch (err) {
+    console.error('[API] fetchResearch failed:', err)
+    throw err
   }
-  return (await res.json()) as ResearchResult
 }
 
 export async function checkHealth(): Promise<{ ok: boolean }> {
