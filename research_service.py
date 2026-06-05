@@ -536,6 +536,32 @@ def attach_dynamic_score(canonical, stocks, results):
         res["final_score_preview"] = res.get("total_score")
 
 
+def attach_score_breakdown(canonical, stocks, results):
+    """None-aware 动态评分增强（MVP，仅展示、只读、不写盘）：
+      向 result 注入 res['data_confidence'] 与 res['score_breakdown']（逐维度可解释）。
+      - 缺失字段不计入维度分母并重归一化；D/E 缺失/≤0 不给低负债分（见 api/score_engine.py）。
+      - 不覆盖 res['total_score']（保持 API 兼容与 final_score_preview==total_score 不变量）。
+      - 任何异常都不影响主评分/展示。"""
+    canonical = str(canonical).strip().upper()
+    res = next((r for r in results
+                if str(r.get("ticker", "")).strip().upper() == canonical), None)
+    if res is None:
+        return
+    try:
+        row = next((r for r in stocks
+                    if str(r.get("canonical_ticker") or r.get("ticker", "")).strip().upper() == canonical),
+                   None)
+        if row is None:
+            return
+        from api import score_engine    # 惰性 import，避免任何包初始化顺序问题
+        eng = score_engine.compute(row)
+        res["data_confidence"] = eng["data_confidence"]
+        res["score_breakdown"] = eng["score_breakdown"]
+    except Exception:
+        res.pop("data_confidence", None)
+        res.pop("score_breakdown", None)
+
+
 # ============================================================
 # 共用编排：单股研究（CLI 与 Web 都调）
 # ============================================================
@@ -608,6 +634,8 @@ def run_research(ticker: str, readonly: bool = False) -> dict:
 
     # Phase 1：AI 动态评分（旁路、纯内存、不写盘、不联网；只读模式也生成供展示）
     attach_dynamic_score(canonical, stocks, results)
+    # MVP：None-aware 动态评分增强（data_confidence + score_breakdown，仅展示、不改 total_score）
+    attach_score_breakdown(canonical, stocks, results)
 
     out["ok"]                = True
     out["result"]            = res

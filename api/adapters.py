@@ -125,6 +125,10 @@ def build_research_payload(ticker: str) -> dict:
             "balance_sheet_score": result.get("balance_sheet_score"),
             "valuation_score": result.get("valuation_score"),
         },
+        # MVP：None-aware 动态评分增强（可选；缺失时为 None / 不影响既有字段）。
+        # data_confidence: 0..1 数据完整度；score_breakdown: 逐维度 {score,max_score,used/missing_fields,notes}。
+        "data_confidence": result.get("data_confidence"),
+        "score_breakdown": result.get("score_breakdown"),
         "raw": result,
     }
     return _jsonable(payload)

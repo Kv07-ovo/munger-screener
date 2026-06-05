@@ -35,6 +35,8 @@ class ResearchOk(TypedDict, total=False):
     risks: List[str]
     missing_fields: List[str]
     financials: Financials
+    data_confidence: Any                 # MVP: 0..1 数据完整度（已用评分字段/应有评分字段），可选
+    score_breakdown: List[Dict[str, Any]]  # MVP: 逐维度 {dimension,score,max_score,used_fields,missing_fields,notes}，可选
     raw: Dict[str, Any]
 
 
