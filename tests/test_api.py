@@ -74,6 +74,59 @@ class TestResearchApi(unittest.TestCase):
         import ai_scorer
         self.assertEqual(ai_scorer.AI_WEIGHT, 0.0)
 
+    # ── ai_evidence_v1：新主分链路 ────────────────────────────────
+    def test_ai_evidence_fields_present(self):
+        from api import adapters
+        p = adapters.build_research_payload("MSFT")
+        if not p.get("ok"):
+            self.skipTest("本机无 MSFT 数据")
+        for k in ("ai_generated", "scoring_method", "scoring_rubric_version",
+                  "validator_status", "ai_breakdown", "source_dates",
+                  "missing_data_impact", "disclaimer", "generated_at"):
+            self.assertIn(k, p)
+        self.assertIsInstance(p["ai_breakdown"], dict)
+        json.dumps(p)   # 仍须 JSON 安全
+
+    def test_main_score_comes_from_ai_not_legacy(self):
+        from api import adapters
+        p = adapters.build_research_payload("MSFT")
+        if not (p.get("ok") and p.get("total_score") is not None):
+            self.skipTest("本机无 MSFT 数据或不可用")
+        ai = (p.get("raw") or {}).get("ai_evidence") or {}
+        # 响应主分 == AI 证据评分；scoring_method 标注真实来源
+        self.assertEqual(p["total_score"], ai.get("total_score"))
+        self.assertIn(p["scoring_method"], ("ai_mock", "ai_llm"))
+        self.assertEqual(p["scoring_rubric_version"], "ai_evidence_v1")
+        # legacy scorer 的分仍存在于 raw（仅参考），但不是响应主分来源
+        self.assertIn("total_score", p.get("raw") or {})
+
+    def test_default_scoring_method_is_mock(self):
+        if os.getenv("AI_SCORING_PROVIDER"):
+            self.skipTest("环境已配置 provider")
+        from api import adapters
+        p = adapters.build_research_payload("MSFT")
+        if not (p.get("ok") and p.get("total_score") is not None):
+            self.skipTest("本机无 MSFT 数据")
+        self.assertEqual(p["scoring_method"], "ai_mock")
+        self.assertFalse(p["ai_generated"])   # mock 非真实 AI
+
+    def test_ai_unavailable_does_not_crash(self):
+        from api import adapters
+        old = os.environ.get("AI_SCORING_PROVIDER")
+        os.environ["AI_SCORING_PROVIDER"] = "none"
+        try:
+            p = adapters.build_research_payload("MSFT")
+        finally:
+            if old is None:
+                os.environ.pop("AI_SCORING_PROVIDER", None)
+            else:
+                os.environ["AI_SCORING_PROVIDER"] = old
+        json.dumps(p)
+        if p.get("ok"):
+            self.assertEqual(p["scoring_method"], "unavailable")
+            self.assertIsNone(p["total_score"])
+            self.assertEqual(p["final_score_preview"], p["total_score"])  # 仍保持不变量
+
     @unittest.skipUnless(
         importlib.util.find_spec("fastapi") is not None
         or importlib.util.find_spec("starlette") is not None,
