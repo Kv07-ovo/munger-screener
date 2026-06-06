@@ -20,6 +20,20 @@ export interface Financials {
   valuation_score?: unknown
 }
 
+// ai_evidence_v1 评分方法（前端据此区分真实 AI / 开发 mock / 不可用）。
+export type ScoringMethod = 'ai_llm' | 'ai_mock' | 'unavailable'
+
+// 7 维 rubric 分项（缺失维度可能为 null）。
+export interface AiBreakdown {
+  business_quality?: number | null
+  growth?: number | null
+  balance_sheet?: number | null
+  valuation?: number | null
+  moat?: number | null
+  management_governance?: number | null
+  data_quality_adjustment?: number | null
+}
+
 export interface ResearchResult {
   ok: boolean
   state: ResearchState
@@ -38,6 +52,25 @@ export interface ResearchResult {
   financials?: Financials
   message?: string
   raw?: Record<string, unknown>
+
+  // ── ai_evidence_v1：AI 证据评分（主分链路）──
+  rating?: string | null
+  confidence?: number | null
+  summary?: string
+  ai_generated?: boolean
+  scoring_method?: ScoringMethod
+  scoring_rubric_version?: string | null
+  validator_status?: string | null
+  generated_at?: string | null
+  evidence_packet_id?: string | null
+  ai_breakdown?: AiBreakdown | null
+  score_drivers?: string[]
+  missing_data_impact?: string
+  source_dates?: Record<string, string | null> | null
+  stale_fields?: string[]
+  warnings?: string[]
+  disclaimer?: string
+  data_confidence?: number | null
 }
 
 export async function fetchResearch(ticker: string): Promise<ResearchResult> {
