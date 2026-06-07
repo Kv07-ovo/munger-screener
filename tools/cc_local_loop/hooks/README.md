@@ -20,6 +20,10 @@
 - Phase C 只是安全骨架：**不做**完整 collect、**不**续跑、**不**调用模型。
 - 仅当存在 `tools/cc_local_loop/runs/.active_task` 时工作；否则 `exit 0` 直接退出。
 - 只向 `runs/` 下追加一行脱敏的时间戳快照标记；不碰任何业务文件。
+- 快照写入前一律经 `redact` 脱敏：正常走 `common.redact`；即便 `common.py` 无法导入，
+  也使用本地 **fallback redact**（标准库正则，覆盖 `sk-`/`ghp_`/`hf_`/`xox`/`AKIA`、
+  `Bearer`、`api_key=`/`token=`/`password=`/`secret=` 等），**绝不是 no-op**，
+  确保任何降级路径下密钥都不会落入快照。
 
 ## 3. 拦截规则列表
 

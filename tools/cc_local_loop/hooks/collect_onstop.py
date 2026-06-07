@@ -22,6 +22,7 @@ Guard rails:
 from __future__ import annotations
 
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -40,9 +41,35 @@ try:
 
     def load_config():
         return common.load_config()
-except Exception:  # pragma: no cover - defensive only
+except Exception:  # pragma: no cover - only when common.py cannot be imported
+    # Local fallback so a snapshot is STILL redacted even if common.py cannot be
+    # imported. This must NEVER be a no-op: a credential must never reach the
+    # snapshot log unmasked. Mirrors guard_pretooluse.py's fallback (stdlib only).
+    _FB_KV = re.compile(
+        r"(?i)\b(api[-_]?key|access[-_]?token|auth[-_]?token|secret[-_]?key|secret|token|password|authorization)"
+        r"(\s*[=:]\s*)\S+"
+    )
+    _FB_BEARER = re.compile(r"(?i)\bbearer\s+\S+")
+    _FB_TOK = re.compile(
+        r"\b(?:"
+        r"sk-[A-Za-z0-9]{6,}"          # OpenAI-style
+        r"|gh[pousr]_[A-Za-z0-9]{6,}"  # GitHub ghp_/gho_/...
+        r"|xox[a-zA-Z]?-?[A-Za-z0-9-]{6,}"  # Slack xox...
+        r"|AKIA[A-Z0-9]{16}"           # AWS access key id
+        r"|hf_[A-Za-z0-9]{6,}"         # HuggingFace
+        r")\b"
+    )
+
     def redact(text):
-        return "" if text is None else str(text)
+        if text is None:
+            return ""
+        s = str(text)
+        # Bearer first so the token after "Bearer" is masked before the KV rule
+        # consumes only the word "Bearer".
+        s = _FB_BEARER.sub("bearer ***REDACTED***", s)
+        s = _FB_KV.sub(lambda m: f"{m.group(1)}{m.group(2)}***REDACTED***", s)
+        s = _FB_TOK.sub("***REDACTED***", s)
+        return s
 
     def load_config():
         try:
