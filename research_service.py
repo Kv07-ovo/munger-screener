@@ -562,6 +562,37 @@ def attach_score_breakdown(canonical, stocks, results):
         res.pop("score_breakdown", None)
 
 
+def attach_ai_evidence_score(canonical, stocks, results, client=None):
+    """ai_evidence_v1 主分链路（只读、不写盘）：向 result 注入 res['ai_evidence']。
+
+    - res['ai_evidence'] 为经 validator 的可信结构化结果 + 元数据（scoring_method /
+      validator_status / source_dates / missing_fields / stale_fields / generated_at 等）。
+    - 无 key / provider 失败 / 校验失败 → ai_evidence 为明确的 ai_unavailable/failed 占位
+      （total_score=None、scoring_method=unavailable），绝不回落 legacy total_score 作为主分。
+    - 绝不写任何文件、绝不依赖网络可用性；任何异常都不影响既有展示字段。
+    - client 可注入（测试/自定义 provider）；None 时按 env 选择（默认确定性 mock）。
+    """
+    canonical = str(canonical).strip().upper()
+    res = next((r for r in results
+                if str(r.get("ticker", "")).strip().upper() == canonical), None)
+    if res is None:
+        return
+    try:
+        row = next((r for r in stocks
+                    if str(r.get("canonical_ticker") or r.get("ticker", "")).strip().upper() == canonical),
+                   None)
+        if row is None:
+            return
+        from api import ai_scoring_service   # 惰性 import，避免包初始化顺序问题
+        res["ai_evidence"] = ai_scoring_service.score_with_ai(row, client=client)
+    except Exception:
+        # 主分链路异常：不影响既有展示，但打印到 stderr 便于排查（不泄露给前端）
+        import sys
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        res.pop("ai_evidence", None)
+
+
 # ============================================================
 # 共用编排：单股研究（CLI 与 Web 都调）
 # ============================================================
@@ -636,6 +667,8 @@ def run_research(ticker: str, readonly: bool = False) -> dict:
     attach_dynamic_score(canonical, stocks, results)
     # MVP：None-aware 动态评分增强（data_confidence + score_breakdown，仅展示、不改 total_score）
     attach_score_breakdown(canonical, stocks, results)
+    # ai_evidence_v1：AI 证据评分（新主分链路；只读、不写盘）。失败→明确 ai_unavailable，不回落 legacy。
+    attach_ai_evidence_score(canonical, stocks, results)
 
     out["ok"]                = True
     out["result"]            = res

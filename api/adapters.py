@@ -18,6 +18,7 @@ import traceback
 from typing import Any
 
 import research_service
+from api import ai_scoring_schema as ai_schema
 
 
 def _jsonable(obj: Any) -> Any:
@@ -43,8 +44,13 @@ def health_payload() -> dict:
 
 
 def _points(aidyn: dict, key: str) -> list:
+    return _point_list(aidyn.get(key))
+
+
+def _point_list(items) -> list:
+    """把 [{point, evidence_metric}, ...] 或 [str, ...] 规整为 list[str]（非空）。"""
     out = []
-    for it in (aidyn.get(key) or []):
+    for it in (items or []):
         if isinstance(it, dict):
             p = str(it.get("point", "")).strip()
             if p:
@@ -95,7 +101,10 @@ def build_research_payload(ticker: str) -> dict:
         priority_label = prio if isinstance(prio, str) else ""
         priority_note = ""
 
-    aidyn = result.get("ai_dynamic") or {}
+    aidyn = result.get("ai_dynamic") or {}          # legacy Phase-1 启发式（仅参考）
+    ai = result.get("ai_evidence") or {}            # ai_evidence_v1 主分链路（权威）
+    ai_method = ai.get("scoring_method") or ai_schema.METHOD_UNAVAILABLE
+    ai_total = ai.get("total_score")                # 主分；不可用时为 None（绝不回落 legacy）
 
     mf = str(result.get("missing_fields", "") or "").strip()
     missing = [] if (not mf or mf == "（无）") else [s.strip() for s in re.split(r"[、,，;；]", mf) if s.strip()]
@@ -107,16 +116,20 @@ def build_research_payload(ticker: str) -> dict:
         "canonical": canonical,
         "company_name": name,
         "market": result.get("market"),
-        "total_score": result.get("total_score"),
-        # final_score_preview == total_score by design (ai_scorer.AI_WEIGHT == 0); passed through, not faked.
-        "final_score_preview": result.get("final_score_preview", result.get("total_score")),
+        # ── 主分来源：AI 证据评分（ai_evidence_v1）。legacy scorer 不再作为最终主分。──
+        "total_score": ai_total,
+        # 兼容旧字段：保持 final_score_preview == total_score 不变量（现二者同为 AI 主分）。
+        "final_score_preview": ai_total,
+        "rating": ai.get("rating"),
+        "confidence": ai.get("confidence"),
+        "summary": ai.get("summary"),
+        "strengths": _point_list(ai.get("strengths")),
+        "risks": _point_list(ai.get("risks")),
         "research_priority": priority_label,
         "research_priority_note": priority_note,
-        "ai_rating": aidyn.get("ai_rating"),
-        "strengths": _points(aidyn, "key_strengths"),
-        "risks": _points(aidyn, "key_risks"),
+        "ai_rating": aidyn.get("ai_rating"),        # legacy Phase-1 评级（参考，非主分）
         "missing_fields": missing,
-        "financials": {
+        "financials": {                              # legacy 规则分（参考/调试，非主分来源）
             "pe": result.get("pe"),
             "pb": result.get("pb"),
             "market_cap": result.get("market_cap"),
@@ -125,10 +138,23 @@ def build_research_payload(ticker: str) -> dict:
             "balance_sheet_score": result.get("balance_sheet_score"),
             "valuation_score": result.get("valuation_score"),
         },
-        # MVP：None-aware 动态评分增强（可选；缺失时为 None / 不影响既有字段）。
-        # data_confidence: 0..1 数据完整度；score_breakdown: 逐维度 {score,max_score,used/missing_fields,notes}。
-        "data_confidence": result.get("data_confidence"),
-        "score_breakdown": result.get("score_breakdown"),
+        # ── 新增可信字段（ai_evidence_v1）──
+        "ai_generated": bool(ai.get("ai_generated", False)),
+        "scoring_method": ai_method,                # ai_llm | ai_mock | unavailable
+        "scoring_rubric_version": ai.get("scoring_rubric_version"),
+        "validator_status": ai.get("validator_status"),
+        "generated_at": ai.get("generated_at"),
+        "evidence_packet_id": ai.get("evidence_packet_id"),
+        "ai_breakdown": ai.get("breakdown"),        # 7 维 {dim: score}
+        "score_drivers": ai.get("score_drivers"),
+        "missing_data_impact": ai.get("missing_data_impact"),
+        "source_dates": ai.get("source_dates"),
+        "stale_fields": ai.get("stale_fields"),
+        "warnings": ai.get("warnings"),
+        "disclaimer": ai.get("disclaimer"),
+        # ── 数据透明度 / legacy 逐维参考 ──
+        "data_confidence": ai.get("data_confidence", result.get("data_confidence")),
+        "score_breakdown": result.get("score_breakdown"),   # legacy（score_engine）逐维明细：参考
         "raw": result,
     }
     return _jsonable(payload)
