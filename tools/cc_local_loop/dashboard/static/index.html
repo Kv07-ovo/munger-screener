@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>cc_local_loop Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="hdr">
+    <div class="hdr-left">
+      <span class="logo">cc_local_loop</span>
+      <span class="sub">Dashboard · read-only</span>
+    </div>
+    <div class="hdr-right">
+      <span id="statusBadge" class="badge badge-idle">—</span>
+      <span class="meta">refreshed <span id="refreshTime">—</span></span>
+      <span id="conn" class="conn conn-wait">connecting…</span>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="card" id="cardOverview">
+      <h2>Task Overview</h2>
+      <div class="kv" id="overview"><div class="empty">no active task</div></div>
+    </section>
+
+    <section class="card" id="cardPipeline">
+      <h2>Pipeline</h2>
+      <ol class="pipe" id="pipeline"></ol>
+    </section>
+
+    <section class="card" id="cardReview">
+      <h2>Local AI Review</h2>
+      <div id="review"><div class="empty">—</div></div>
+    </section>
+
+    <section class="card" id="cardGit">
+      <h2>Git</h2>
+      <div class="muted">HEAD <span id="gitHead" class="mono">—</span></div>
+      <div class="subh">status</div>
+      <pre id="gitStatus" class="code">—</pre>
+      <div class="subh">diff --stat</div>
+      <pre id="gitDiff" class="code">—</pre>
+    </section>
+
+    <section class="card" id="cardLogs">
+      <h2>Logs</h2>
+      <div class="tabs" id="logTabs">
+        <button data-w="hook" class="tab active">hook</button>
+        <button data-w="test" class="tab">test</button>
+        <button data-w="claude_stdout" class="tab">claude_stdout</button>
+        <button data-w="claude_stderr" class="tab">claude_stderr</button>
+        <button data-w="driver" class="tab">driver</button>
+      </div>
+      <pre id="logBody" class="code log">—</pre>
+    </section>
+
+    <section class="card" id="cardArtifacts">
+      <h2>Artifacts (current round)</h2>
+      <ul class="arts" id="artifacts"><li class="empty">—</li></ul>
+    </section>
+
+    <section class="card" id="cardRuns">
+      <h2>Runs</h2>
+      <ul class="runs" id="runs"><li class="empty">—</li></ul>
+    </section>
+
+    <section class="card" id="cardSafety">
+      <h2>Safety</h2>
+      <ul class="safety">
+        <li><span class="ok">●</span> Dashboard read-only</li>
+        <li><span class="ok">●</span> writes disabled</li>
+        <li><span class="ok">●</span> command execution disabled</li>
+        <li><span class="ok">●</span> commit / push / deploy disabled</li>
+        <li><span class="ok">●</span> secrets redacted</li>
+        <li><span class="ok">●</span> bound 127.0.0.1 only</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer class="ftr">
+    <span id="ver">—</span> · loopback-only monitor · do not expose / proxy / port-forward
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
