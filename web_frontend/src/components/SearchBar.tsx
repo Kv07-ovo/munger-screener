@@ -15,6 +15,7 @@ export default function SearchBar({ value, onChange, onSubmit, loading }: Props)
       className="cmdbar"
       onSubmit={(e) => {
         e.preventDefault()
+        if (loading) return
         onSubmit()
       }}
     >
@@ -31,6 +32,7 @@ export default function SearchBar({ value, onChange, onSubmit, loading }: Props)
         placeholder="输入股票代码，例如 AAPL / 600519.SH"
         autoComplete="off"
         spellCheck={false}
+        disabled={loading}
       />
       <CatButton loading={loading} />
     </form>

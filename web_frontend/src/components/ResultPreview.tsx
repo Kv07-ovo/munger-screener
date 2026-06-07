@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import type { ResearchResult } from '../api'
+import type { ResearchResult, Status } from '../api'
 import ExampleChips from './ExampleChips'
 import MobileResultView from './MobileResultView'
 import AiEvidence from './AiEvidence'
@@ -20,7 +20,7 @@ function useIsMobile(query = '(max-width: 680px)') {
 }
 
 interface Props {
-  status: 'idle' | 'loading' | 'done' | 'error'
+  status: Status
   result: ResearchResult | null
   errorMsg: string
   ticker: string
@@ -86,7 +86,7 @@ export default function ResultPreview({ status, result, errorMsg, ticker, onPick
   if (status === 'error') {
     // transport failure (backend down) — distinct from a structured API error
     return (
-      <div className="result-card is-warn">
+      <div className="result-card is-warn" role="alert" aria-live="assertive">
         <p className="state-title">连接出错</p>
         <p className="state-sub">{errorMsg}</p>
       </div>
@@ -95,12 +95,23 @@ export default function ResultPreview({ status, result, errorMsg, ticker, onPick
 
   if (!result) return null
 
+  // ---- structured server error：覆盖 ok:false 与 ok:true 两种 state==='error'，
+  //      置于 !result.ok 与移动端分支之前，桌面/移动一致，避免被误显示为「数据不足/数据完整」。
+  if (result.state === 'error') {
+    return (
+      <div className="result-card is-warn" role="alert" aria-live="assertive">
+        <p className="state-title">服务器处理出错</p>
+        <p className="state-sub">{result.message || '服务器处理出错，请稍后重试。'}</p>
+      </div>
+    )
+  }
+
   // ---- structured API errors ----
   if (!result.ok) {
     if (result.state === 'invalid_ticker') {
       return (
         <div className="state-block">
-          <div className="result-card is-warn">
+          <div className="result-card is-warn" role="alert" aria-live="assertive">
             <p className="state-title">小猫没找到这个股票代码</p>
             <p className="state-sub">请检查代码格式，或试试下面的示例</p>
           </div>
@@ -111,7 +122,7 @@ export default function ResultPreview({ status, result, errorMsg, ticker, onPick
     // insufficient_data
     return (
       <div className="state-block">
-        <div className="result-card is-muted nodata">
+        <div className="result-card is-muted nodata" role="alert" aria-live="assertive">
           <div className="nodata-icon" aria-hidden="true">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
               strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
