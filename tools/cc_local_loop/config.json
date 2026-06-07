@@ -6,6 +6,14 @@
   "test_default_command": ".venv\\Scripts\\python.exe -m pytest tests/ -q",
   "mock_verdict": "UNSURE",
 
+  "loop_mode": "safe_auto",
+  "auto_commit": false,
+  "auto_push": false,
+  "auto_deploy": false,
+  "allow_delete": false,
+  "active_task_file": "tools/cc_local_loop/runs/.active_task",
+  "runs_dir": "tools/cc_local_loop/runs",
+
   "hook_fail_mode": "fail_closed",
   "stop_hook_enabled": true,
   "protected_paths": [
