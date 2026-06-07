@@ -83,10 +83,21 @@ def load_config(config_path=CONFIG_PATH) -> dict:
 
 _REDACTED = "***REDACTED***"
 
-# key=value / key: value style secrets (api_key, token, password, ...).
+# key=value / key: value secrets. The key may be a bare keyword (``token=``,
+# ``secret:``) OR an underscore/hyphen-joined identifier whose final component is
+# sensitive (``ANTHROPIC_API_KEY=``, ``AWS_SECRET_ACCESS_KEY=``, ``GITHUB_TOKEN=``).
+# The leading ``WORD_``/``WORD-`` segments are what the old ``\b``-anchored pattern
+# missed: ``_`` is a word char, so there is no word boundary before ``API`` in
+# ``..._API_KEY``. The sensitive component must sit immediately before the
+# ``=``/``:`` so ``TOKEN_COUNT=5`` and the prose ``score token count`` are left
+# untouched (avoids over-redaction).
 _KV_SECRET = re.compile(
-    r"(?i)\b(api[-_]?key|access[-_]?token|auth[-_]?token|secret[-_]?key|secret|token|password|authorization)"
-    r"(\s*[=:]\s*)\S+"
+    r"(?i)(?<![A-Za-z0-9])"
+    r"((?:[A-Za-z0-9]+[_-])*"
+    r"(?:api[_-]?key|access[_-]?key|secret[_-]?key|api[_-]?secret|client[_-]?secret"
+    r"|access[_-]?token|auth[_-]?token|refresh[_-]?token"
+    r"|key|token|secret|password|passwd|passphrase|authorization|credentials?))"
+    r"(\s*[=:]\s*)(\S+)"
 )
 # "Authorization: Bearer xxx" style headers.
 _BEARER = re.compile(r"(?i)\bbearer\s+\S+")
@@ -98,7 +109,7 @@ _TOKENISH = re.compile(
     r"|gh[pousr]_[A-Za-z0-9]{6,}"
     r"|xox[baprs]-[A-Za-z0-9-]{6,}"
     r"|AKIA[A-Z0-9]{16}"
-    r"|hf_[A-Za-z0-9]{20,}"
+    r"|hf_[A-Za-z0-9]{16,}"
     r")\b"
 )
 
@@ -107,13 +118,15 @@ def redact(text) -> str:
     """Mask anything that looks like an API key / token / password.
 
     Applied to every string before it is printed to stdout or written into a
-    review file, so a stray credential in captured tool output never leaks.
+    file, so a stray credential in captured tool output never leaks.
     """
     if text is None:
         return ""
     s = str(text)
-    s = _KV_SECRET.sub(lambda m: f"{m.group(1)}{m.group(2)}{_REDACTED}", s)
+    # Bearer FIRST: otherwise the KV rule consumes only the word "Bearer" as the
+    # value of "Authorization:" and leaves the real token after it exposed.
     s = _BEARER.sub(f"bearer {_REDACTED}", s)
+    s = _KV_SECRET.sub(lambda m: f"{m.group(1)}{m.group(2)}{_REDACTED}", s)
     s = _TOKENISH.sub(_REDACTED, s)
     return s
 

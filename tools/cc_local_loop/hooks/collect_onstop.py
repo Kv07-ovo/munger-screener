@@ -45,18 +45,24 @@ except Exception:  # pragma: no cover - only when common.py cannot be imported
     # Local fallback so a snapshot is STILL redacted even if common.py cannot be
     # imported. This must NEVER be a no-op: a credential must never reach the
     # snapshot log unmasked. Mirrors guard_pretooluse.py's fallback (stdlib only).
+    # Kept in sync with common.redact so the degraded path has the same coverage
+    # (incl. underscore-joined env-var names like ANTHROPIC_API_KEY=).
     _FB_KV = re.compile(
-        r"(?i)\b(api[-_]?key|access[-_]?token|auth[-_]?token|secret[-_]?key|secret|token|password|authorization)"
-        r"(\s*[=:]\s*)\S+"
+        r"(?i)(?<![A-Za-z0-9])"
+        r"((?:[A-Za-z0-9]+[_-])*"
+        r"(?:api[_-]?key|access[_-]?key|secret[_-]?key|api[_-]?secret|client[_-]?secret"
+        r"|access[_-]?token|auth[_-]?token|refresh[_-]?token"
+        r"|key|token|secret|password|passwd|passphrase|authorization|credentials?))"
+        r"(\s*[=:]\s*)(\S+)"
     )
     _FB_BEARER = re.compile(r"(?i)\bbearer\s+\S+")
     _FB_TOK = re.compile(
         r"\b(?:"
         r"sk-[A-Za-z0-9]{6,}"          # OpenAI-style
         r"|gh[pousr]_[A-Za-z0-9]{6,}"  # GitHub ghp_/gho_/...
-        r"|xox[a-zA-Z]?-?[A-Za-z0-9-]{6,}"  # Slack xox...
+        r"|xox[baprs]-[A-Za-z0-9-]{6,}"  # Slack xox...
         r"|AKIA[A-Z0-9]{16}"           # AWS access key id
-        r"|hf_[A-Za-z0-9]{6,}"         # HuggingFace
+        r"|hf_[A-Za-z0-9]{16,}"        # HuggingFace
         r")\b"
     )
 
