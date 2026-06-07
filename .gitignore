@@ -37,4 +37,9 @@ backups/
 # 不忽略整个 .claude/；.claude/agents/*.md 暂保留，后续再决定是否入库。
 .agents/
 .claude/skills/
+
+# Keep project Claude Code skills versioned
+!.claude/skills/
+!.claude/skills/**
+
 skills-lock.json
