@@ -4,5 +4,50 @@
   "lmstudio_url": "http://localhost:1234/v1/chat/completions",
   "max_rounds": 5,
   "test_default_command": ".venv\\Scripts\\python.exe -m pytest tests/ -q",
-  "mock_verdict": "UNSURE"
+  "mock_verdict": "UNSURE",
+
+  "hook_fail_mode": "fail_closed",
+  "stop_hook_enabled": true,
+  "protected_paths": [
+    ".env",
+    "*.env",
+    ".env.*",
+    "id_rsa",
+    "id_rsa.pub",
+    "id_ed25519",
+    "id_ed25519.pub",
+    "id_dsa",
+    "id_ecdsa",
+    "known_hosts",
+    "authorized_keys",
+    "*.pem",
+    "*.key",
+    "*.ppk",
+    "*cookie*",
+    "*cookies*",
+    ".gitignore",
+    "package.json",
+    "package-lock.json",
+    "requirements*.txt",
+    "pyproject.toml"
+  ],
+  "command_denylist": [
+    "(?i)\\bnpm\\s+run\\s+deploy\\b",
+    "(?i)\\b(yarn|pnpm)\\s+deploy\\b",
+    "(?i)\\b(fly|wrangler|serverless|sls|eb)\\s+deploy\\b",
+    "(?i)\\bgcloud\\s+app\\s+deploy\\b",
+    "(?i)\\bmake\\s+deploy\\b"
+  ],
+  "secret_env_names": [
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "TUSHARE_TOKEN",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "GITHUB_TOKEN",
+    "GH_TOKEN",
+    "HF_TOKEN",
+    "HUGGINGFACE_TOKEN",
+    "SLACK_TOKEN"
+  ]
 }
