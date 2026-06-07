@@ -132,3 +132,9 @@
   `MAX_ROUNDS_REACHED` / `FINISHED`）才允许 `finish`。
 - `finish` 写 `final_report.md`、把状态置为 `FINISHED`、移除 `.active_task` 锁（这是控制器唯一会删除的文件，
   与业务/产物文件的 `allow_delete` 无关），**不** commit / push / deploy。
+
+### 7.9 Phase F smoke test
+
+- Phase F 用一个低风险的文档改动验证 safe_auto loop 的真实任务链路。
+- 该流程不会自动 commit / push / deploy，全部由人工显式决定。
+- `local_review.py` 当前仍可能返回 `UNSURE`，因此需要人工验收后再推进。
