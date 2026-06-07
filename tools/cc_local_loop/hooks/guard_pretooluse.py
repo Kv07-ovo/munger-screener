@@ -232,7 +232,10 @@ def _path_reason(hit) -> str:
 # --------------------------------------------------------------------------- #
 
 def main() -> int:
-    raw = sys.stdin.read()
+    # Read as UTF-8: Claude Code sends hook events as UTF-8, but Windows stdin
+    # defaults to the ANSI code page (GBK), which raises UnicodeDecodeError on
+    # non-ASCII payloads. Decode bytes explicitly with errors="replace".
+    raw = sys.stdin.buffer.read().decode("utf-8", "replace")
     cfg = {}
     try:
         cfg = load_config() or {}

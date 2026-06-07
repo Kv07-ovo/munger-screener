@@ -75,7 +75,9 @@ def _resolve_run_dir() -> Path:
 
 
 def main() -> int:
-    raw = sys.stdin.read()
+    # Read as UTF-8 (see guard_pretooluse.py): Windows stdin defaults to GBK and
+    # would raise on UTF-8 non-ASCII hook payloads.
+    raw = sys.stdin.buffer.read().decode("utf-8", "replace")
     try:
         event = json.loads(raw) if raw.strip() else {}
     except Exception:
