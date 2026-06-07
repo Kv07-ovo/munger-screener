@@ -27,6 +27,7 @@ issuing dangerous commands in the first place.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 from fnmatch import fnmatch
@@ -129,6 +130,57 @@ BUILTIN_MANIFEST_PATHS = [
     "pyproject.toml",
 ]
 
+# --------------------------------------------------------------------------- #
+# Anti-recursion policy (Full Auto Driver guard)
+# --------------------------------------------------------------------------- #
+#
+# The (future) Full Auto Driver runs Claude Code head-less and exports
+# ``CC_AUTO_DRIVER=1`` into that subprocess. While that flag is set, this guard
+# DENIES any attempt to launch the ``claude`` CLI again from inside a Bash /
+# PowerShell command, so the automated run can never recursively spawn another
+# Claude / nest an agent. Per the user's design choice, EVEN probes such as
+# ``claude --version`` / ``Get-Command claude`` are denied inside the auto flow
+# (maximum strictness: zero recursion, zero nested discovery).
+#
+# This trigger is BUILT-IN and non-removable, mirroring the command/path
+# denylists: config.json may ADD more trigger env vars / patterns, never remove
+# this one. When the flag is NOT set, ordinary human use of ``claude --version``
+# / ``claude --help`` passes through untouched.
+BUILTIN_AUTO_DRIVER_ENV = "CC_AUTO_DRIVER"
+AUTO_DRIVER_ACTIVE_VALUE = "1"
+
+# The ``claude`` CLI executable token: bare name, optionally path-prefixed,
+# quoted, or carrying a Windows extension (claude.exe / claude.cmd / ...).
+_CLAUDE_EXE = r"(?:[^\s'\"|&;()]*[\\/])?claude(?:\.(?:exe|cmd|bat|ps1|com))?"
+# Right boundary: end-of-token (space / EOL / quote / separator / closing paren),
+# so a substring such as ``claude_stdout`` (word char follows) is NOT the CLI,
+# but ``$(claude)`` IS.
+_CLAUDE_END = r"(?=$|\s|['\"|&;)])"
+
+# "claude" appearing in COMMAND POSITION — invoked, not merely mentioned. This
+# keeps prose / commit messages / log file names (``echo \"use claude\"``,
+# ``git commit -m \"fix claude bug\"``, ``claude_stdout.log``) from matching,
+# while still catching every real launch form, including via a runner, a command
+# substitution ``$(...)`` / backtick, or a PowerShell eval (iex / &).
+BUILTIN_AUTO_DRIVER_CLAUDE_PATTERNS = [
+    # 1) start of command / right after a separator OR substitution opener
+    #    (; | & ` ( newline), skipping leading FOO=bar / FOO="b c" env-assigns.
+    r"(?im)(?:^|[\n;|&`(])\s*(?:[A-Za-z_]\w*=(?:\"[^\"]*\"|'[^']*'|\S*)\s+)*['\"]?"
+    + _CLAUDE_EXE + _CLAUDE_END,
+    # 2) right after a launcher / runner / eval keyword, anywhere later in the
+    #    segment (npx, cmd /c, powershell, bash -c, env, sudo, start, iex /
+    #    Invoke-Expression, Invoke-Command, get-command / where / which, ...).
+    r"(?i)\b(?:npx|bunx|npm\s+exec|pnpm\s+dlx|pnpm\s+exec|yarn\s+dlx"
+    r"|powershell(?:\.exe)?|pwsh(?:\.exe)?|cmd(?:\.exe)?"
+    r"|sh|bash|zsh|env|sudo|nohup|time|xargs|exec|command|start|start-process|saps|call"
+    r"|invoke-expression|iex|invoke-command|icm|start-job|start-threadjob"
+    r"|get-command|gcm|where(?:\.exe)?|which)\b[^\n;|&]*?[\s(]['\"]?"
+    + _CLAUDE_EXE + _CLAUDE_END,
+    # 3) opaque encoded PowerShell command (-e / -enc / -EncodedCommand) could
+    #    hide a claude launch under base64 — denied outright in the auto flow.
+    r"(?i)\b(?:powershell|pwsh)(?:\.exe)?\b[^\n;|&]*?\s-e(?:nc(?:odedcommand)?)?\s",
+]
+
 _MAX_REASON = 300
 
 
@@ -182,6 +234,40 @@ def check_command(command: str, cfg) -> "str | None":
     for rx in _secret_env_patterns(cfg):
         if rx.search(command):
             return f"疑似读取/打印密钥的命令被拦截：{_snippet(command)}"
+    return None
+
+
+def _auto_driver_active(cfg) -> bool:
+    """True when running inside the Full Auto Driver (recursion guard armed).
+
+    The built-in ``CC_AUTO_DRIVER`` trigger is always honoured; config.json may
+    list ADDITIONAL trigger env var names via ``auto_driver_trigger_envs`` but can
+    never disable the built-in one.
+    """
+    names = [BUILTIN_AUTO_DRIVER_ENV]
+    for name in (cfg.get("auto_driver_trigger_envs") or []):
+        if isinstance(name, str) and name:
+            names.append(name)
+    return any(os.environ.get(n) == AUTO_DRIVER_ACTIVE_VALUE for n in names)
+
+
+def check_auto_driver_recursion(command: str, cfg) -> "str | None":
+    """Deny any ``claude`` launch while the auto-driver flag is set.
+
+    Returns a (redactable, command-free) reason string on a hit, else ``None``.
+    Outside the auto flow this is a no-op, so manual ``claude --version`` /
+    ``claude --help`` are never affected.
+    """
+    if not command or not _auto_driver_active(cfg):
+        return None
+    extra = [p for p in (cfg.get("auto_driver_claude_patterns") or []) if isinstance(p, str)]
+    for pat in BUILTIN_AUTO_DRIVER_CLAUDE_PATTERNS + extra:
+        try:
+            if re.search(pat, command):
+                return ("自动驾驶（CC_AUTO_DRIVER=1）下禁止再次调用 claude，"
+                        "已拦截以避免递归启动 Claude / 嵌套 agent。")
+        except re.error:
+            continue
     return None
 
 
@@ -249,7 +335,13 @@ def main() -> int:
         tool_input = event.get("tool_input") or {}
 
         if tool in ("Bash", "PowerShell"):
-            reason = check_command(tool_input.get("command", "") or "", cfg)
+            cmd = tool_input.get("command", "") or ""
+            # Anti-recursion FIRST: in the auto flow, a claude launch is denied
+            # with a specific reason before the generic denylist runs.
+            reason = check_auto_driver_recursion(cmd, cfg)
+            if reason:
+                _deny(reason)
+            reason = check_command(cmd, cfg)
             if reason:
                 _deny(reason)
 

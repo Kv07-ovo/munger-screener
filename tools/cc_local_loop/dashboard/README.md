@@ -45,7 +45,8 @@ http://127.0.0.1:8765
 - `GET /api/health` — `ok` / `server_time` / `bind` / `version`
 - `GET /api/status` — `active` / `task_id` / `status` / `stage` / `round_index` / `max_rounds` / `last_verdict` / `backend` / `branch` / `updated_at` / `server_time`（**2 秒轮询**用）
 - `GET /api/runs` — runs 任务列表（task_id / kind / status / round / is_active）
-- `GET /api/current` — 当前 active task 的 STATE 摘要 + 当前轮 artifact 存在性
+- `GET /api/current` — 当前 active task 的 STATE 摘要 + 当前轮 artifact 存在性 + `driver`（Full Auto Driver 状态，见下）
+- `GET /api/driver?task=<task_id>` — 读取 `runs/<task>/DRIVER.json`（`task` 省略时取当前 active task）。返回字段：`full_auto_enabled` / `driver_started_at` / `driver_deadline` / `auto_round_count` / `current_claude_pid` / `last_claude_exit_code` / `stop_reason` / `auto_commit` / `max_total_seconds` / `per_round_seconds` / `model` / `updated_at`。**只读、字段白名单、全程脱敏**；DRIVER.json 不存在时安全返回 `{"exists": false}`，绝不报错；非法 / 路径穿越的 `task` 直接 `400`。
 - `GET /api/rounds?task=<task_id>` — 每轮 plan / implement / context / review / next 是否存在 + 该轮 verdict
 - `GET /api/review?task=<task_id>&round=<n>` — 解析 review.md 的 backend / model / verdict / evidence / risks / next_prompt_summary
 - `GET /api/diff` — `git status` + `git diff --stat` + 短 HEAD
@@ -58,6 +59,7 @@ http://127.0.0.1:8765
 
 - **Header**：项目名 / 当前状态徽标 / 刷新时间 / 连接状态
 - **Task Overview**：active_task / task_id / branch / base_commit / round / status
+- **Full Auto Driver**：`full_auto_enabled` / `auto_round_count` / `current_claude_pid` / `last_claude_exit_code` / `stop_reason` / `driver_deadline` / `updated_at`（DRIVER.json 缺失时显示「driver not started」）
 - **Pipeline**：`start → round → implement → collect → review → decide → finish`
 - **Local AI Review**：backend / model / verdict / evidence / risks / next prompt 摘要
 - **Git**：status / diff --stat
@@ -68,8 +70,10 @@ http://127.0.0.1:8765
 ## 6. 和 Full Auto Driver 的关系
 
 - 职责切分：**Driver 只写，Dashboard 只读**。
-- 未来 Full Auto Driver 把每轮日志写到 `runs/<task>/round_NN/`
+- 未来 Full Auto Driver 会把整体状态写到 `runs/<task>/DRIVER.json`
+  （约定字段见上方 `/api/driver`），并把每轮日志写到 `runs/<task>/round_NN/`
   （约定文件名：`claude_stdout.log` / `claude_stderr.log` / `driver.log`，写入前由 Driver 自行脱敏）。
-- Dashboard 仅读取这些日志并**再次脱敏**展示；缺失文件优雅降级（显示「无该日志」），
-  因此在 Driver 落地前面板即可使用。
-- Dashboard 永远不回写 `runs/`、不改 `STATE.json`、不触发任何推进。
+- Dashboard 通过 `/api/driver`（及 `/api/current` 内的 `driver` 字段）**只读**这份
+  `DRIVER.json`，按字段白名单取值并**再次脱敏**展示；文件缺失时优雅降级
+  （显示「driver not started」/ 日志显示「无该日志」），因此在 Driver 落地前面板即可使用。
+- Dashboard 永远不回写 `runs/`、不改 `STATE.json` / `DRIVER.json`、不执行任何 driver 命令、不触发任何推进。

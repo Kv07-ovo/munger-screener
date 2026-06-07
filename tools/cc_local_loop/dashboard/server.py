@@ -32,7 +32,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-VERSION = "h-ui-b-1.0"
+VERSION = "h-c0-1.0"
 
 DASHBOARD_DIR = Path(__file__).resolve().parent
 TOOL_DIR = DASHBOARD_DIR.parent
@@ -113,6 +113,13 @@ STATUS_STEP = {
 ROUND_ARTIFACTS = ("plan_prompt.md", "implement_prompt.md", "context.md",
                    "review.md", "next_cc_prompt.md")
 LOG_WHICH = {"hook", "test", "claude_stdout", "claude_stderr", "driver"}
+# Curated whitelist of fields surfaced from runs/<task>/DRIVER.json (written by
+# the future Full Auto Driver). Only these keys are ever read out; everything
+# else in the file is ignored, and the whole payload still passes through redact.
+DRIVER_FIELDS = ("full_auto_enabled", "driver_started_at", "driver_deadline",
+                 "auto_round_count", "current_claude_pid", "last_claude_exit_code",
+                 "stop_reason", "auto_commit", "max_total_seconds",
+                 "per_round_seconds", "model", "updated_at")
 STATIC_FILES = {"index.html", "app.js", "style.css"}
 STATIC_CTYPE = {".html": "text/html; charset=utf-8",
                 ".js": "text/javascript; charset=utf-8",
@@ -282,6 +289,35 @@ def round_artifacts(task_dir, n):
     for name in ROUND_ARTIFACTS:
         present[name] = (rd / name).exists()
     return present
+
+
+def driver_summary(task_dir):
+    """Read ``runs/<task>/DRIVER.json`` (curated, capped, read-only).
+
+    Returns ``{"exists": False}`` when the task dir or DRIVER.json is missing or
+    unreadable — the dashboard degrades gracefully before the Full Auto Driver
+    ever writes the file. The path is confined to ``RUNS_DIR`` (the same guard as
+    every other reader); the filename is a fixed literal, so no user input ever
+    reaches the path. Values flow out through the normal ``redact`` JSON pass.
+    """
+    if task_dir is None:
+        return {"exists": False}
+    p = task_dir / "DRIVER.json"
+    if not _within(p, RUNS_DIR) or not p.is_file():
+        return {"exists": False}
+    data = _load_json(p)
+    if not isinstance(data, dict):
+        return {"exists": False}
+    out = {"exists": True}
+    for k in DRIVER_FIELDS:
+        v = data.get(k)
+        if isinstance(v, str):
+            v = _cap(v, MAX_LINE)
+        elif isinstance(v, (list, dict)):
+            v = _cap(json.dumps(v, ensure_ascii=False), MAX_LINE)
+        # bool / int / float / None pass through as-is.
+        out[k] = v
+    return out
 
 
 def parse_review(text):
@@ -457,6 +493,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"runs": list_runs(), "server_time": _now()})
             if path == "/api/current":
                 return self._api_current()
+            if path == "/api/driver":
+                return self._api_driver(qs)
             if path == "/api/rounds":
                 return self._api_rounds(qs)
             if path == "/api/review":
@@ -522,10 +560,30 @@ class Handler(BaseHTTPRequestHandler):
             "stage": derive_stage(st.get("status")),
             "current_round": n,
             "round_artifacts": round_artifacts(d, n),
+            "driver": driver_summary(d),
             "has_final_report": (d / "final_report.md").exists(),
             "has_task_card": (d / "task.md").exists(),
             "server_time": _now(),
         })
+
+    def _api_driver(self, qs):
+        """Read-only DRIVER.json view for ``?task=<id>`` (defaults to active)."""
+        task = (qs.get("task") or [None])[0]
+        if not task:
+            task = read_active_task()
+        if not task:
+            return self._json({"active": False, "driver": {"exists": False},
+                               "server_time": _now()})
+        # Reject path traversal / separators outright (security boundary).
+        if "/" in task or "\\" in task or ".." in task:
+            return self._err(400, "invalid task")
+        d = _runs_subdir(task)
+        if not d:
+            # Well-formed name but no such run dir yet -> graceful empty, no error.
+            return self._json({"task_id": task, "driver": {"exists": False},
+                               "server_time": _now()})
+        self._json({"task_id": d.name, "driver": driver_summary(d),
+                    "server_time": _now()})
 
     def _api_rounds(self, qs):
         task = (qs.get("task") or [None])[0]

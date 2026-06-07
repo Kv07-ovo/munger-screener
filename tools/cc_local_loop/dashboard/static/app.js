@@ -95,6 +95,30 @@ async function refreshHeavy() {
   pullLog();
 }
 
+function renderDriver(dr) {
+  const host = $("driver");
+  if (!host) return;
+  if (!dr || !dr.exists) {
+    host.innerHTML = '<div class="empty">no DRIVER.json (driver not started)</div>';
+    return;
+  }
+  const flag = (v) => v === true ? '<span class="flag on">on</span>'
+    : v === false ? '<span class="flag off">off</span>'
+    : (v === null || v === undefined ? "—" : esc(v));
+  const rows = [
+    ["full_auto_enabled", flag(dr.full_auto_enabled)],
+    ["auto_round_count", esc(dr.auto_round_count)],
+    ["current_claude_pid", esc(dr.current_claude_pid)],
+    ["last_claude_exit_code", esc(dr.last_claude_exit_code)],
+    ["stop_reason", esc(dr.stop_reason)],
+    ["driver_deadline", esc(dr.driver_deadline)],
+    ["updated_at", esc(dr.updated_at)],
+  ];
+  host.innerHTML = rows.map(
+    ([k, v]) => `<div class="k">${esc(k)}</div><div class="v">${v === "" || v === undefined ? "—" : v}</div>`
+  ).join("");
+}
+
 async function pullCurrent() {
   try {
     const c = await getJSON("/api/current");
@@ -102,8 +126,10 @@ async function pullCurrent() {
       $("overview").innerHTML = '<div class="empty">no active task</div>';
       $("review").innerHTML = '<div class="empty">—</div>';
       $("artifacts").innerHTML = '<li class="empty">—</li>';
+      renderDriver(null);
       return;
     }
+    renderDriver(c.driver);
     const st = c.state || {};
     const ov = [
       ["task_id", st.task_id], ["description", st.task_description],

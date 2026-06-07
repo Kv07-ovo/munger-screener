@@ -62,5 +62,8 @@
     "HF_TOKEN",
     "HUGGINGFACE_TOKEN",
     "SLACK_TOKEN"
-  ]
+  ],
+
+  "auto_driver_trigger_envs": [],
+  "auto_driver_claude_patterns": []
 }

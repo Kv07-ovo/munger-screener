@@ -96,6 +96,10 @@ body {
 .verdict.NEEDS_FIX { background: rgba(224,167,60,.16); color: var(--warn); }
 .verdict.UNSURE { background: rgba(136,147,163,.16); color: var(--muted); }
 
+.flag { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
+.flag.on { background: rgba(76,175,114,.16); color: var(--ok); }
+.flag.off { background: rgba(136,147,163,.16); color: var(--muted); }
+
 .review-meta { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; }
 .review-meta b { color: var(--muted); font-weight: 600; }
 ul.bullets { margin: 4px 0 8px; padding-left: 18px; }
