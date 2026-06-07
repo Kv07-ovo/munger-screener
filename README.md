@@ -93,6 +93,72 @@ npm run dev          # 默认 http://localhost:5173
 
 ---
 
+## 生产验收闭环（pre-push / pre-deploy）
+
+面向 React + FastAPI 主线的可重复验收清单。每次推送前 / 部署前按此走一遍。
+
+### 1. Pre-push 必跑
+
+```bash
+# 后端（仓库根目录）
+./.venv/bin/python -m unittest discover -s tests
+
+# 前端
+cd web_frontend
+npm run build      # 含 TypeScript 类型检查 + Vite 生产构建
+```
+
+### 2. Pre-deploy 检查
+
+- 工作区干净：`git status --porcelain` 输出为空
+- 后端测试全绿（见上）
+- 前端 `npm run build` 通过
+- 未提交构建产物：`git status` 不应出现 `web_frontend/node_modules/`、`web_frontend/dist/`
+- `package.json` / `package-lock.json` 未被意外改动（如非本次有意升级依赖）：`git diff --name-only` 不含这两个文件
+
+### 3. 生产 health 检查（部署后）
+
+```bash
+# 健康检查：期望返回 {"ok": true} 或等价健康响应
+curl https://<api-domain>/health
+
+# 已知 ticker 冒烟：期望 ok:true，state 为 complete 或 pending
+curl "https://<api-domain>/api/research?ticker=AAPL"
+```
+
+- 若 `/api/research` 返回 `invalid_ticker` / `insufficient_data` / `error`，按下方「CORS / API URL 排查流」处理。
+- `error` 表示后端 `run_research` 抛了异常（结构化 `{ok:false, state:"error"}`），优先查后端日志。
+
+### 4. 环境变量 checklist
+
+> 通用检查项，不针对具体部署平台 UI。进程从【环境变量】读取（uvicorn 不会自动加载 `.env`）。
+
+- `ALLOWED_ORIGINS`：必须包含生产前端 origin（逗号分隔多个）；不建议使用 `*`，后端也会主动丢弃 `*`。未设时回退本地默认（`localhost:5173`）。
+- `VITE_API_BASE_URL`：**前端构建期内联**，必须在 `npm run build` **之前**设为生产 API 地址，否则产物会写死默认 `http://localhost:8000`。
+- `AI_SCORING_PROVIDER`：未配置时走默认 / mock 路径（对外 `scoring_method=ai_mock`，非真实 AI）。
+- `AI_SCORING_API_KEY`：启用真实 AI 后端时需要（仅从环境变量读取，绝不写进代码 / 仓库）。
+- `AI_SCORING_MODEL`：启用真实 AI 后端时需要 / 可覆盖默认模型。
+
+### 5. CORS / API URL 排查流
+
+按顺序排查（尤其「前端能打开但 API 调用失败」时）：
+
+- [ ] API `/health` 是否可达（直接 curl 生产域名）
+- [ ] 浏览器 Network 面板中请求是否打到正确的 `VITE_API_BASE_URL`
+- [ ] `ALLOWED_ORIGINS` 是否包含当前前端 origin（协议 + 域名 + 端口完全一致）
+- [ ] 后端是否从**仓库根目录**启动（`uvicorn api.main:app`），否则 `import research_service` / `import scorer` 会失败
+- [ ] 启用真实 AI 时，`AI_SCORING_PROVIDER` / `AI_SCORING_API_KEY` / `AI_SCORING_MODEL` 是否配置
+- [ ] 若仅前端成功、API 失败：优先查 `VITE_API_BASE_URL` 是否构建期指对，以及 CORS 是否放行前端 origin
+
+### 6. Rollback 指南
+
+- 优先**重部署上一个确认可用的 commit**（最低风险）。
+- 或 `git revert <bad_commit>` 生成回滚提交（不改写历史）。
+- 回滚前后都要重跑：后端 `unittest`、前端 `npm run build`、生产 `/health` + 一个已知 ticker。
+- 数据注意：CSV 在临时文件系统会随重启丢失（详见本文档「云端部署注意」），回滚不会自动恢复运行期写入的数据；生产应使用持久盘或迁移到数据库。
+
+---
+
 ## 按需查询任意股票（v2.2.0-alpha1）
 
 除了批量评分 watchlist，现在可以**直接查询任意股票代码**——本地没有就自动建档：

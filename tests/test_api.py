@@ -127,6 +127,46 @@ class TestResearchApi(unittest.TestCase):
             self.assertIsNone(p["total_score"])
             self.assertEqual(p["final_score_preview"], p["total_score"])  # 仍保持不变量
 
+    def test_run_research_exception_returns_state_error(self):
+        # 故障注入：run_research 抛异常时，adapters 必须返回结构化 state='error'（不外泄、不崩）。
+        import research_service
+        from api import adapters
+        orig = research_service.run_research
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("injected failure")
+
+        research_service.run_research = _boom
+        try:
+            p = adapters.build_research_payload("AAPL")
+        finally:
+            research_service.run_research = orig   # 必须恢复，避免污染其他测试
+        self.assertFalse(p["ok"])
+        self.assertEqual(p["state"], "error")
+        self.assertTrue(str(p.get("message", "")).strip())   # message 存在且非空（不锁全文）
+        self.assertEqual(p.get("ticker"), "AAPL")            # ticker 回显
+        json.dumps(p)                                        # 仍须 JSON 安全
+
+    def test_success_payload_contract_keys_present(self):
+        # 契约守卫：成功态 payload 必须含前端 ResearchResult 消费的最小稳定键集。
+        # 只断言键存在，不锁定具体分数 / 长文本；允许后端有额外字段（如 score_breakdown）。
+        from api import adapters
+        p = None
+        for t in ("AAPL", "MSFT"):
+            cand = adapters.build_research_payload(t)
+            if cand.get("ok") and cand.get("state") in ("complete", "pending"):
+                p = cand
+                break
+        if p is None:
+            self.skipTest("本机无 complete/pending 数据（AAPL/MSFT）")
+        for k in ("ok", "state", "ticker", "canonical", "company_name",
+                  "total_score", "summary",
+                  "strengths", "risks", "scoring_method",
+                  "scoring_rubric_version", "ai_breakdown", "financials"):
+            self.assertIn(k, p)
+        self.assertIsInstance(p["financials"], dict)
+        json.dumps(p)
+
     @unittest.skipUnless(
         importlib.util.find_spec("fastapi") is not None
         or importlib.util.find_spec("starlette") is not None,
