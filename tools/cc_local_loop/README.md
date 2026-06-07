@@ -138,3 +138,39 @@
 - Phase F 用一个低风险的文档改动验证 safe_auto loop 的真实任务链路。
 - 该流程不会自动 commit / push / deploy，全部由人工显式决定。
 - `local_review.py` 当前仍可能返回 `UNSURE`，因此需要人工验收后再推进。
+
+## 8. Phase G — 真实本地审查（Ollama / LM Studio）
+
+### 8.1 是什么
+
+- `local_review.py` 从 Phase 1 的安全占位升级为**真实本地模型审查**：
+  探测到 Ollama / LM Studio 时，把脱敏、限长的 `context.md` 发给本地模型，
+  要求其返回严格 JSON 审查结论，再由程序校验、钳制后写入 `review.md`。
+- 仍是纯标准库、无第三方依赖；探测不到本地模型时**自动回退 mock**（verdict 恒为 UNSURE）。
+
+### 8.2 后端与配置（config.json）
+
+- Ollama：`POST {ollama_url}/api/chat`（默认 `http://localhost:11434`）；
+  `ollama_model` 留空则自动取 `/api/tags` 第一个已安装模型。
+- LM Studio：`POST {lmstudio_url}`（默认 `.../v1/chat/completions`）；
+  `lmstudio_model` 留空则取 `/v1/models` 第一个。
+- 其他键：`model_timeout_seconds`（默认 60）、`max_context_chars`（默认 16000，超长截断并标注）、
+  `model_temperature`（默认 0）。
+- 探测顺序：Ollama → LM Studio → mock。
+
+### 8.3 verdict 的程序化校验（不信任模型自由发挥）
+
+- 真实后端可输出 `PASS` / `NEEDS_FIX` / `UNSURE`；mock 恒为 `UNSURE`。
+- 非法 verdict（如 `HACKED`）、缺 `verdict` 字段、空响应、无法解析的输出、
+  模型/连接异常——**一律钳制为 UNSURE**。
+- **PASS 严格化**：只有当 `context.md` 中存在测试通过（`returncode=0` 且无跳过/失败标记）
+  的证据时才允许 PASS；否则 PASS 被降级为 UNSURE 并在 `review.md` 注明。
+
+### 8.4 安全边界
+
+- 模型只产出文本：本工具**绝不**执行模型给出的命令，**绝不**按模型输出改文件，
+  **绝不** commit / push / deploy。
+- 进入模型的 context、模型返回的 evidence/risks/next_prompt、以及 stdout，
+  写出前**全部经过 `common.redact` 脱敏**；不打印任何 API Key / Token / 密钥 / Cookie / .env 内容。
+- `reviewer_system.md` 是审查者 system prompt；其 JSON 输出契约由代码再次强制附加，
+  即便该文件被改动也无法放宽输出格式。
