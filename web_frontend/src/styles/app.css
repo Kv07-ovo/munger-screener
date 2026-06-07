@@ -135,6 +135,9 @@ html, body {
   transition: border-color .2s, color .2s;
 }
 .chip:hover { border-color: var(--line-strong); color: var(--ink); }
+/* loading 期间禁用态：仅状态反馈，不改视觉风格 */
+.cmd-input:disabled { opacity: .6; cursor: not-allowed; }
+.chip:disabled { opacity: .5; cursor: default; }
 
 /* ===== Loading (kv_2): light text, no card ===== */
 .loading { margin-top: 24px; }
